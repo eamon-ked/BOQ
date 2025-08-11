@@ -1,5 +1,95 @@
 import React, { useState, useEffect } from 'react';
-import { Save, FolderOpen, Plus, Edit3, Trash2, X, Calendar, DollarSign, Package } from 'lucide-react';
+import { Save, FolderOpen, Plus, Edit3, Trash2, X, Calendar, DollarSign, Package, AlertCircle, Copy, User, MapPin, Clock, Star, Archive, Download } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useValidatedForm } from '../hooks/useValidatedForm';
+import { enhancedProjectFormSchema } from '../validation/schemas';
+
+// Field Error Display Component
+const FieldError = ({ error, warning, touched }) => {
+  if (!touched) return null;
+  
+  if (error) {
+    return (
+      <div className="flex items-center gap-1 mt-1 text-red-600">
+        <AlertCircle size={12} />
+        <span className="text-xs">{error}</span>
+      </div>
+    );
+  }
+  
+  if (warning) {
+    return (
+      <div className="flex items-center gap-1 mt-1 text-yellow-600">
+        <AlertCircle size={12} />
+        <span className="text-xs">{warning}</span>
+      </div>
+    );
+  }
+  
+  return null;
+};
+
+// Validated Input Component
+const ValidatedInput = ({ 
+  label, 
+  required = false, 
+  type = 'text', 
+  placeholder, 
+  fieldProps, 
+  fieldState,
+  className = '',
+  autoFocus = false,
+  ...props 
+}) => {
+  const { error, warning, touched } = fieldState;
+  const hasError = touched && error;
+  const hasWarning = touched && warning && !error;
+  
+  const inputClassName = `w-full px-3 py-2 border rounded-lg transition-colors duration-200 ${
+    hasError 
+      ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
+      : hasWarning
+      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200'
+      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+  } focus:ring-2 focus:ring-opacity-50 ${className}`;
+
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      {type === 'textarea' ? (
+        <textarea 
+          name={fieldProps.name}
+          value={fieldProps.value}
+          onChange={fieldProps.onChange}
+          onBlur={fieldProps.onBlur}
+          aria-invalid={fieldProps['aria-invalid']}
+          aria-describedby={fieldProps['aria-describedby']}
+          {...props} 
+          className={inputClassName} 
+          placeholder={placeholder}
+          autoFocus={autoFocus}
+        />
+      ) : (
+        <input 
+          name={fieldProps.name}
+          value={fieldProps.value}
+          onChange={fieldProps.onChange}
+          onBlur={fieldProps.onBlur}
+          aria-invalid={fieldProps['aria-invalid']}
+          aria-describedby={fieldProps['aria-describedby']}
+          {...props} 
+          type={type} 
+          className={inputClassName} 
+          placeholder={placeholder}
+          autoFocus={autoFocus}
+        />
+      )}
+      <FieldError error={error} warning={warning} touched={touched} />
+    </div>
+  );
+};
 
 const BOQProjectManager = ({ 
   isOpen, 
@@ -12,16 +102,59 @@ const BOQProjectManager = ({
   updateBOQProject,
   deleteBOQProject,
   getBOQItems,
-  saveBOQItems 
+  saveBOQItems,
+  cloneBOQProject 
 }) => {
   const [projects, setProjects] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
-  const [projectForm, setProjectForm] = useState({
-    name: '',
-    description: ''
-  });
   const [loading, setLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [projectStats, setProjectStats] = useState({});
+  const [sortBy, setSortBy] = useState('updated_at');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  // Enhanced form values for project metadata
+  const defaultFormValues = {
+    name: '',
+    description: '',
+    status: 'draft',
+    clientName: '',
+    clientContact: '',
+    clientEmail: '',
+    location: '',
+    estimatedValue: '',
+    deadline: '',
+    priority: 1,
+    notes: ''
+  };
+
+  // Initialize validated form
+  const {
+    values: formData,
+    errors: formErrors,
+    warnings: formWarnings,
+    touched,
+    isValid: isFormValid,
+    isSubmitting,
+    setValue,
+    setValues,
+    handleSubmit: handleFormSubmit,
+    reset: resetForm,
+    getFieldProps,
+    getFieldState
+  } = useValidatedForm({
+    schema: enhancedProjectFormSchema,
+    defaultValues: defaultFormValues,
+    mode: 'onChange',
+    revalidateMode: 'onChange',
+    sanitizeOnChange: true,
+    sanitizeType: 'project',
+    onSubmit: async (validatedData) => {
+      return await submitForm(validatedData);
+    }
+  });
 
   // Load projects when component opens
   useEffect(() => {
@@ -30,63 +163,150 @@ const BOQProjectManager = ({
     }
   }, [isOpen]);
 
+  // Calculate project statistics
+  const calculateProjectStats = (projectList) => {
+    const stats = {
+      total: projectList.length,
+      draft: projectList.filter(p => p.status === 'draft').length,
+      active: projectList.filter(p => p.status === 'active').length,
+      completed: projectList.filter(p => p.status === 'completed').length,
+      archived: projectList.filter(p => p.status === 'archived').length,
+      totalValue: projectList.reduce((sum, p) => sum + (p.total_value || 0), 0),
+      avgValue: projectList.length > 0 ? projectList.reduce((sum, p) => sum + (p.total_value || 0), 0) / projectList.length : 0,
+      overdue: projectList.filter(p => p.deadline && new Date(p.deadline) < new Date() && p.status !== 'completed').length
+    };
+    setProjectStats(stats);
+    return stats;
+  };
+
   const loadProjects = async () => {
     setLoading(true);
     try {
       const projectList = await getBOQProjects();
       setProjects(projectList);
+      calculateProjectStats(projectList);
     } catch (error) {
       console.error('Failed to load projects:', error);
+      toast.error('Failed to load projects. Please try again.', {
+        duration: 5000,
+        icon: '❌',
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateProject = async (e) => {
-    e.preventDefault();
-    if (!projectForm.name.trim()) return;
-
+  const submitForm = async (validatedData) => {
     try {
-      const projectId = await createBOQProject(projectForm.name, projectForm.description);
-      if (projectId && currentBOQItems.length > 0) {
-        // Save current BOQ items to the new project
-        await saveBOQItems(projectId, currentBOQItems);
-      }
-      
-      resetForm();
-      loadProjects();
-      
-      if (onSaveBOQ) {
-        onSaveBOQ(projectId, projectForm.name);
+      // Prepare enhanced project data
+      const projectData = {
+        name: validatedData.name,
+        description: validatedData.description,
+        status: validatedData.status || 'draft',
+        clientName: validatedData.clientName || null,
+        clientContact: validatedData.clientContact || null,
+        clientEmail: validatedData.clientEmail || null,
+        location: validatedData.location || null,
+        estimatedValue: validatedData.estimatedValue ? parseFloat(validatedData.estimatedValue) : 0,
+        deadline: validatedData.deadline || null,
+        priority: parseInt(validatedData.priority) || 1,
+        notes: validatedData.notes || null
+      };
+
+      if (editingProject) {
+        // Update existing project
+        await updateBOQProject(editingProject.id, projectData);
+        toast.success(`Updated project "${validatedData.name}"`, {
+          duration: 3000,
+          icon: '✏️',
+        });
+        resetFormState();
+        loadProjects();
+        return validatedData;
+      } else {
+        // Create new project
+        const result = await createBOQProject(projectData);
+        const projectId = result.projectId || result;
+        
+        if (projectId && currentBOQItems.length > 0) {
+          // Save current BOQ items to the new project
+          await saveBOQItems(projectId, currentBOQItems);
+          toast.success(`Created project "${validatedData.name}" with ${currentBOQItems.length} items`, {
+            duration: 4000,
+            icon: '📁',
+          });
+        } else {
+          toast.success(`Created project "${validatedData.name}"`, {
+            duration: 3000,
+            icon: '📁',
+          });
+        }
+        
+        resetFormState();
+        loadProjects();
+        
+        if (onSaveBOQ) {
+          onSaveBOQ(projectId, validatedData.name);
+        }
+        
+        return { ...validatedData, id: projectId };
       }
     } catch (error) {
-      console.error('Failed to create project:', error);
-    }
-  };
-
-  const handleUpdateProject = async (e) => {
-    e.preventDefault();
-    if (!projectForm.name.trim() || !editingProject) return;
-
-    try {
-      await updateBOQProject(editingProject.id, projectForm.name, projectForm.description);
-      resetForm();
-      loadProjects();
-    } catch (error) {
-      console.error('Failed to update project:', error);
+      const errorMessage = `Failed to ${editingProject ? 'update' : 'create'} project: ${error.message}`;
+      console.error(errorMessage, error);
+      toast.error(errorMessage, {
+        duration: 5000,
+        icon: '❌',
+      });
+      throw new Error(errorMessage);
     }
   };
 
   const handleDeleteProject = async (projectId) => {
-    if (!confirm('Are you sure you want to delete this BOQ project? This action cannot be undone.')) {
-      return;
-    }
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    setShowDeleteConfirm(project);
+  };
+
+  const confirmDeleteProject = async () => {
+    if (!showDeleteConfirm) return;
 
     try {
-      await deleteBOQProject(projectId);
+      // Create backup before deletion
+      const projectItems = await getBOQItems(showDeleteConfirm.id);
+      const backupData = {
+        project: showDeleteConfirm,
+        items: projectItems,
+        timestamp: new Date().toISOString()
+      };
+
+      // Store backup in localStorage for recovery
+      const backupKey = `project_backup_${showDeleteConfirm.id}_${Date.now()}`;
+      localStorage.setItem(backupKey, JSON.stringify(backupData));
+
+      // Delete the project
+      await deleteBOQProject(showDeleteConfirm.id);
+      
+      toast.success(
+        <div>
+          <div>Deleted project "{showDeleteConfirm.name}"</div>
+          <div className="text-xs mt-1 opacity-75">Backup saved for recovery</div>
+        </div>,
+        {
+          duration: 6000,
+          icon: '🗑️',
+        }
+      );
+
       loadProjects();
+      setShowDeleteConfirm(null);
     } catch (error) {
       console.error('Failed to delete project:', error);
+      toast.error(`Failed to delete project: ${error.message}`, {
+        duration: 5000,
+        icon: '❌',
+      });
     }
   };
 
@@ -96,6 +316,10 @@ const BOQProjectManager = ({
       if (onLoadBOQ) {
         onLoadBOQ(items, project);
       }
+      toast.success(`Loaded project "${project.name}" with ${items.length} items`, {
+        duration: 3000,
+        icon: '📂',
+      });
       onClose();
     } catch (error) {
       console.error('Failed to load project:', error);
@@ -115,17 +339,63 @@ const BOQProjectManager = ({
     }
   };
 
+  const handleCloneProject = async (project) => {
+    try {
+      const cloneName = `${project.name} (Copy)`;
+      const cloneData = {
+        name: cloneName,
+        description: project.description || '',
+        status: 'draft',
+        clientName: project.client_name || '',
+        clientContact: project.client_contact || '',
+        clientEmail: project.client_email || '',
+        location: project.location || '',
+        estimatedValue: project.estimated_value || 0,
+        priority: project.priority || 1,
+        notes: project.notes ? `Cloned from: ${project.name}\n\n${project.notes}` : `Cloned from: ${project.name}`
+      };
+
+      const result = await cloneBOQProject(project.id, cloneData);
+      const newProjectId = result.projectId || result;
+
+      toast.success(`Cloned project "${project.name}" as "${cloneName}"`, {
+        duration: 4000,
+        icon: '📋',
+      });
+
+      loadProjects();
+    } catch (error) {
+      console.error('Failed to clone project:', error);
+      toast.error(`Failed to clone project: ${error.message}`, {
+        duration: 5000,
+        icon: '❌',
+      });
+    }
+  };
+
   const startEdit = (project) => {
-    setEditingProject(project);
-    setProjectForm({
+    // Prepare project data for enhanced form
+    const projectForForm = {
       name: project.name,
-      description: project.description || ''
-    });
+      description: project.description || '',
+      status: project.status || 'draft',
+      clientName: project.client_name || '',
+      clientContact: project.client_contact || '',
+      clientEmail: project.client_email || '',
+      location: project.location || '',
+      estimatedValue: project.estimated_value ? project.estimated_value.toString() : '',
+      deadline: project.deadline || '',
+      priority: project.priority || 1,
+      notes: project.notes || ''
+    };
+    
+    setValues(projectForForm, false); // Don't validate immediately when loading
+    setEditingProject(project);
     setIsCreating(true);
   };
 
-  const resetForm = () => {
-    setProjectForm({ name: '', description: '' });
+  const resetFormState = () => {
+    resetForm(defaultFormValues);
     setIsCreating(false);
     setEditingProject(null);
   };
@@ -138,6 +408,61 @@ const BOQProjectManager = ({
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const getStatusColor = (status) => {
+    const colors = {
+      draft: 'bg-gray-100 text-gray-800',
+      active: 'bg-blue-100 text-blue-800',
+      completed: 'bg-green-100 text-green-800',
+      archived: 'bg-yellow-100 text-yellow-800'
+    };
+    return colors[status] || colors.draft;
+  };
+
+  const getPriorityIcon = (priority) => {
+    if (priority >= 3) return <Star className="text-red-500" size={12} />;
+    if (priority === 2) return <Star className="text-yellow-500" size={12} />;
+    return <Star className="text-gray-400" size={12} />;
+  };
+
+  const isOverdue = (deadline, status) => {
+    return deadline && new Date(deadline) < new Date() && status !== 'completed';
+  };
+
+  const getFilteredAndSortedProjects = () => {
+    let filtered = projects;
+
+    // Apply status filter
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(p => p.status === filterStatus);
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aVal = a[sortBy];
+      let bVal = b[sortBy];
+
+      // Handle different data types
+      if (sortBy === 'total_value' || sortBy === 'estimated_value') {
+        aVal = parseFloat(aVal) || 0;
+        bVal = parseFloat(bVal) || 0;
+      } else if (sortBy === 'updated_at' || sortBy === 'created_at' || sortBy === 'deadline') {
+        aVal = new Date(aVal || 0);
+        bVal = new Date(bVal || 0);
+      } else {
+        aVal = (aVal || '').toString().toLowerCase();
+        bVal = (bVal || '').toString().toLowerCase();
+      }
+
+      if (sortOrder === 'asc') {
+        return aVal > bVal ? 1 : -1;
+      } else {
+        return aVal < bVal ? 1 : -1;
+      }
+    });
+
+    return filtered;
   };
 
   if (!isOpen) return null;
@@ -159,23 +484,81 @@ const BOQProjectManager = ({
               <X size={24} />
             </button>
           </div>
+
+          {/* Project Statistics */}
+          {projectStats.total > 0 && (
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-lg p-3 shadow-sm">
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Total Projects</div>
+                <div className="text-lg font-semibold text-gray-900">{projectStats.total}</div>
+              </div>
+              <div className="bg-white rounded-lg p-3 shadow-sm">
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Total Value</div>
+                <div className="text-lg font-semibold text-green-600">${projectStats.totalValue.toFixed(2)}</div>
+              </div>
+              <div className="bg-white rounded-lg p-3 shadow-sm">
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Active</div>
+                <div className="text-lg font-semibold text-blue-600">{projectStats.active}</div>
+              </div>
+              <div className="bg-white rounded-lg p-3 shadow-sm">
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Overdue</div>
+                <div className="text-lg font-semibold text-red-600">{projectStats.overdue}</div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex h-full max-h-[calc(90vh-80px)]">
           {/* Project List */}
           <div className="w-2/3 flex flex-col">
-            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800">Saved Projects</h3>
-                <p className="text-sm text-gray-600">{projects.length} projects</p>
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+              <div className="flex justify-between items-center mb-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">Saved Projects</h3>
+                  <p className="text-sm text-gray-600">{getFilteredAndSortedProjects().length} of {projects.length} projects</p>
+                </div>
+                <button
+                  onClick={() => setIsCreating(true)}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all duration-200 flex items-center gap-2"
+                >
+                  <Plus size={16} />
+                  New Project
+                </button>
               </div>
-              <button
-                onClick={() => setIsCreating(true)}
-                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all duration-200 flex items-center gap-2"
-              >
-                <Plus size={16} />
-                New Project
-              </button>
+
+              {/* Filters and Sorting */}
+              <div className="flex gap-3 items-center">
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="text-sm border border-gray-300 rounded px-2 py-1"
+                >
+                  <option value="all">All Status</option>
+                  <option value="draft">Draft</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="archived">Archived</option>
+                </select>
+
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="text-sm border border-gray-300 rounded px-2 py-1"
+                >
+                  <option value="updated_at">Last Updated</option>
+                  <option value="name">Name</option>
+                  <option value="total_value">Value</option>
+                  <option value="deadline">Deadline</option>
+                  <option value="priority">Priority</option>
+                </select>
+
+                <button
+                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                  className="text-sm px-2 py-1 border border-gray-300 rounded hover:bg-gray-100"
+                >
+                  {sortOrder === 'asc' ? '↑' : '↓'}
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto">
@@ -191,13 +574,41 @@ const BOQProjectManager = ({
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {projects.map(project => (
+                  {getFilteredAndSortedProjects().map(project => (
                     <div key={project.id} className="p-4 hover:bg-gray-50 transition-all duration-200">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
-                          <h4 className="font-semibold text-gray-800 mb-1">{project.name}</h4>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-semibold text-gray-800">{project.name}</h4>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
+                              {project.status}
+                            </span>
+                            {getPriorityIcon(project.priority)}
+                            {isOverdue(project.deadline, project.status) && (
+                              <span className="text-red-500 text-xs font-medium">OVERDUE</span>
+                            )}
+                          </div>
+                          
                           {project.description && (
                             <p className="text-sm text-gray-600 mb-2">{project.description}</p>
+                          )}
+
+                          {/* Client and Location Info */}
+                          {(project.client_name || project.location) && (
+                            <div className="flex items-center gap-4 text-xs text-gray-500 mb-2">
+                              {project.client_name && (
+                                <div className="flex items-center gap-1">
+                                  <User size={12} />
+                                  <span>{project.client_name}</span>
+                                </div>
+                              )}
+                              {project.location && (
+                                <div className="flex items-center gap-1">
+                                  <MapPin size={12} />
+                                  <span>{project.location}</span>
+                                </div>
+                              )}
+                            </div>
                           )}
                           
                           <div className="flex items-center gap-4 text-xs text-gray-500 mb-2">
@@ -207,16 +618,22 @@ const BOQProjectManager = ({
                             </div>
                             <div className="flex items-center gap-1">
                               <Package size={12} />
-                              <span>{project.item_count} items</span>
+                              <span>{project.item_count || 0} items</span>
                             </div>
                             <div className="flex items-center gap-1">
                               <DollarSign size={12} />
-                              <span>${project.total_value.toFixed(2)}</span>
+                              <span>${(project.total_value || 0).toFixed(2)}</span>
                             </div>
+                            {project.deadline && (
+                              <div className="flex items-center gap-1">
+                                <Clock size={12} />
+                                <span>Due: {formatDate(project.deadline)}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                         
-                        <div className="flex gap-2 ml-4">
+                        <div className="flex gap-1 ml-4">
                           <button
                             onClick={() => handleLoadProject(project)}
                             className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-2 rounded-lg transition-all duration-200"
@@ -233,6 +650,13 @@ const BOQProjectManager = ({
                               <Save size={16} />
                             </button>
                           )}
+                          <button
+                            onClick={() => handleCloneProject(project)}
+                            className="text-purple-500 hover:text-purple-700 hover:bg-purple-50 p-2 rounded-lg transition-all duration-200"
+                            title="Clone project"
+                          >
+                            <Copy size={16} />
+                          </button>
                           <button
                             onClick={() => startEdit(project)}
                             className="text-orange-500 hover:text-orange-700 hover:bg-orange-50 p-2 rounded-lg transition-all duration-200"
@@ -265,28 +689,122 @@ const BOQProjectManager = ({
                 </h3>
               </div>
 
-              <div className="flex-1 p-4">
-                <form onSubmit={editingProject ? handleUpdateProject : handleCreateProject} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Project Name *</label>
-                    <input
-                      type="text"
+              <div className="flex-1 p-4 overflow-y-auto">
+                <form onSubmit={handleFormSubmit} className="space-y-4">
+                  {/* Basic Information */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-medium text-gray-700 border-b pb-2">Basic Information</h4>
+                    
+                    <ValidatedInput
+                      label="Project Name"
                       required
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      value={projectForm.name}
-                      onChange={(e) => setProjectForm(prev => ({ ...prev, name: e.target.value }))}
                       placeholder="Enter project name"
                       autoFocus
+                      fieldProps={getFieldProps('name')}
+                      fieldState={getFieldState('name')}
+                    />
+
+                    <ValidatedInput
+                      label="Description"
+                      type="textarea"
+                      className="h-20"
+                      placeholder="Project description (optional)"
+                      fieldProps={getFieldProps('description')}
+                      fieldState={getFieldState('description')}
+                    />
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Status</label>
+                        <select
+                          {...getFieldProps('status')}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="active">Active</option>
+                          <option value="completed">Completed</option>
+                          <option value="archived">Archived</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Priority</label>
+                        <select
+                          {...getFieldProps('priority')}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                        >
+                          <option value={1}>Low</option>
+                          <option value={2}>Medium</option>
+                          <option value={3}>High</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Client Information */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-medium text-gray-700 border-b pb-2">Client Information</h4>
+                    
+                    <ValidatedInput
+                      label="Client Name"
+                      placeholder="Client or company name"
+                      fieldProps={getFieldProps('clientName')}
+                      fieldState={getFieldState('clientName')}
+                    />
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <ValidatedInput
+                        label="Contact Person"
+                        placeholder="Contact person"
+                        fieldProps={getFieldProps('clientContact')}
+                        fieldState={getFieldState('clientContact')}
+                      />
+
+                      <ValidatedInput
+                        label="Email"
+                        type="email"
+                        placeholder="client@example.com"
+                        fieldProps={getFieldProps('clientEmail')}
+                        fieldState={getFieldState('clientEmail')}
+                      />
+                    </div>
+
+                    <ValidatedInput
+                      label="Location"
+                      placeholder="Project location"
+                      fieldProps={getFieldProps('location')}
+                      fieldState={getFieldState('location')}
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Description</label>
-                    <textarea
-                      className="w-full px-3 py-2 border rounded-lg h-24 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      value={projectForm.description}
-                      onChange={(e) => setProjectForm(prev => ({ ...prev, description: e.target.value }))}
-                      placeholder="Project description (optional)"
+                  {/* Project Details */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-medium text-gray-700 border-b pb-2">Project Details</h4>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                      <ValidatedInput
+                        label="Estimated Value"
+                        type="number"
+                        placeholder="0.00"
+                        fieldProps={getFieldProps('estimatedValue')}
+                        fieldState={getFieldState('estimatedValue')}
+                      />
+
+                      <ValidatedInput
+                        label="Deadline"
+                        type="date"
+                        fieldProps={getFieldProps('deadline')}
+                        fieldState={getFieldState('deadline')}
+                      />
+                    </div>
+
+                    <ValidatedInput
+                      label="Notes"
+                      type="textarea"
+                      className="h-20"
+                      placeholder="Additional notes or comments"
+                      fieldProps={getFieldProps('notes')}
+                      fieldState={getFieldState('notes')}
                     />
                   </div>
 
@@ -298,28 +816,92 @@ const BOQProjectManager = ({
                     </div>
                   )}
 
-                  <div className="flex gap-3 pt-4">
+                  <div className="flex gap-3 pt-4 border-t">
                     <button
                       type="submit"
-                      className="flex-1 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all duration-200 flex items-center justify-center gap-2"
+                      disabled={!isFormValid || isSubmitting}
+                      className={`flex-1 px-4 py-2 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${
+                        !isFormValid || isSubmitting
+                          ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                          : 'bg-blue-500 text-white hover:bg-blue-600'
+                      }`}
                     >
                       <Save size={16} />
-                      {editingProject ? 'Update' : 'Create'} Project
+                      {isSubmitting 
+                        ? (editingProject ? 'Updating...' : 'Creating...') 
+                        : (editingProject ? 'Update' : 'Create')
+                      } Project
                     </button>
                     <button
                       type="button"
-                      onClick={resetForm}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200"
+                      onClick={resetFormState}
+                      disabled={isSubmitting}
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Cancel
                     </button>
                   </div>
+
+                  {/* Validation Status */}
+                  {Object.keys(formErrors).length > 0 && (
+                    <div className="text-xs text-red-600 flex items-center gap-1">
+                      <AlertCircle size={12} />
+                      <span>{Object.keys(formErrors).length} validation error(s)</span>
+                    </div>
+                  )}
                 </form>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="text-red-600" size={24} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Delete Project</h3>
+                  <p className="text-sm text-gray-600">This action cannot be undone</p>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-gray-700 mb-2">
+                  Are you sure you want to delete <strong>"{showDeleteConfirm.name}"</strong>?
+                </p>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-yellow-800 text-sm">
+                    <AlertCircle size={16} />
+                    <span>A backup will be created for recovery purposes</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(null)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteProject}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} />
+                  Delete Project
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

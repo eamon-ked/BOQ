@@ -1,14 +1,103 @@
-import React, { useState } from 'react';
-import { Plus, Edit3, Trash2, X, Save } from 'lucide-react';
+import React, { useState, memo, useCallback, useMemo } from 'react';
+import { Plus, Edit3, Trash2, X, Save, AlertCircle } from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+import toast from 'react-hot-toast';
+import { useAppStore } from '../store';
+import { useValidatedForm } from '../hooks/useValidatedForm';
+import { createItemFormSchema, updateItemFormSchema } from '../validation/schemas';
 
-const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateItem, onDeleteItem, onItemsChanged }) => {
+// Field Error Display Component
+const FieldError = memo(({ error, warning, touched }) => {
+  if (!touched) return null;
+  
+  if (error) {
+    return (
+      <div className="flex items-center gap-1 mt-1 text-red-600">
+        <AlertCircle size={12} />
+        <span className="text-xs">{error}</span>
+      </div>
+    );
+  }
+  
+  if (warning) {
+    return (
+      <div className="flex items-center gap-1 mt-1 text-yellow-600">
+        <AlertCircle size={12} />
+        <span className="text-xs">{warning}</span>
+      </div>
+    );
+  }
+  
+  return null;
+});
+
+// Validated Input Component
+const ValidatedInput = memo(({ 
+  label, 
+  required = false, 
+  type = 'text', 
+  placeholder, 
+  fieldProps, 
+  fieldState,
+  className = '',
+  children,
+  ...props 
+}) => {
+  const { error, warning, touched } = fieldState;
+  const hasError = touched && error;
+  const hasWarning = touched && warning && !error;
+  
+  const inputClassName = `w-full px-3 py-2 border rounded-lg transition-colors duration-200 ${
+    hasError 
+      ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
+      : hasWarning
+      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200'
+      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+  } focus:ring-2 focus:ring-opacity-50 ${className}`;
+
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      {type === 'select' ? (
+        <select {...fieldProps} {...props} className={inputClassName}>
+          {children}
+        </select>
+      ) : type === 'textarea' ? (
+        <textarea {...fieldProps} {...props} className={inputClassName} placeholder={placeholder} />
+      ) : (
+        <input 
+          {...fieldProps} 
+          {...props} 
+          type={type} 
+          className={inputClassName} 
+          placeholder={placeholder} 
+        />
+      )}
+      <FieldError error={error} warning={warning} touched={touched} />
+    </div>
+  );
+});
+
+const ItemManager = memo(() => {
+  // Get data from store with proper selectors
+  const isOpen = useAppStore((state) => state.ui.modals.itemEditor);
+  const items = useAppStore((state) => state.data.masterDatabase);
+  const categories = useAppStore((state) => state.data.categories);
+  
+  // Get actions from store
+  const closeModal = useAppStore((state) => state.closeModal);
+  const setMasterDatabase = useAppStore((state) => state.setMasterDatabase);
+  
+  // Local state for form management
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showFloatingButton, setShowFloatingButton] = useState(false);
-  const [formData, setFormData] = useState({
-    id: '',
+  
+  // Default form values
+  const defaultFormValues = {
     name: '',
     category: '',
     manufacturer: '',
@@ -21,7 +110,40 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
     pricingTerm: 'Each',
     discount: 0,
     description: '',
-    dependencies: []
+    tags: [],
+    dependencies: [],
+    metadata: {
+      isActive: true,
+      stockLevel: undefined,
+      lastPriceUpdate: undefined,
+      supplierInfo: undefined
+    }
+  };
+
+  // Initialize validated form
+  const {
+    values: formData,
+    errors: formErrors,
+    warnings: formWarnings,
+    touched,
+    isValid: isFormValid,
+    isSubmitting,
+    setValue,
+    setValues,
+    handleSubmit: handleFormSubmit,
+    reset: resetForm,
+    getFieldProps,
+    getFieldState
+  } = useValidatedForm({
+    schema: editingItem ? updateItemFormSchema : createItemFormSchema,
+    defaultValues: defaultFormValues,
+    mode: 'onChange',
+    revalidateMode: 'onChange',
+    sanitizeOnChange: true,
+    sanitizeType: 'item',
+    onSubmit: async (validatedData) => {
+      return await submitForm(validatedData);
+    }
   });
 
   const units = ['pcs', 'meters', 'rolls', 'kg', 'liters'];
@@ -42,94 +164,105 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
     return `${cleanCategory}-${cleanName}-${timestamp}`;
   };
 
-  const resetForm = () => {
-    setFormData({
-      id: '',
-      name: '',
-      category: '',
-      manufacturer: '',
-      partNumber: '',
-      unit: 'pcs',
-      unitPrice: 0,
-      unitNetPrice: 0,
-      serviceDuration: 0,
-      estimatedLeadTime: 0,
-      pricingTerm: 'Each',
-      discount: 0,
-      description: '',
-      dependencies: []
-    });
+  // Get actions from store
+  const addMasterItem = useAppStore((state) => state.addMasterItem);
+  const updateMasterItem = useAppStore((state) => state.updateMasterItem);
+  const deleteMasterItem = useAppStore((state) => state.deleteMasterItem);
+
+  const resetFormState = useCallback(() => {
+    resetForm(defaultFormValues);
     setIsAddingItem(false);
     setEditingItem(null);
-  };
+  }, [resetForm]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    if (!formData.name || !formData.category) {
-      alert('Please fill in all required fields');
-      return;
-    }
+  const submitForm = useCallback(async (validatedData) => {
+    try {
+      let itemData = {
+        ...validatedData,
+        // Ensure numeric fields are properly converted
+        unitPrice: parseFloat(validatedData.unitPrice) || 0,
+        unitNetPrice: parseFloat(validatedData.unitNetPrice) || parseFloat(validatedData.unitPrice) || 0,
+        serviceDuration: parseInt(validatedData.serviceDuration) || 0,
+        estimatedLeadTime: parseInt(validatedData.estimatedLeadTime) || 0,
+        discount: parseFloat(validatedData.discount) || 0
+      };
 
-    let itemData = {
-      ...formData,
-      unitPrice: parseFloat(formData.unitPrice) || 0,
-      unitNetPrice: parseFloat(formData.unitNetPrice) || parseFloat(formData.unitPrice) || 0,
-      serviceDuration: parseInt(formData.serviceDuration) || 0,
-      estimatedLeadTime: parseInt(formData.estimatedLeadTime) || 0,
-      discount: parseFloat(formData.discount) || 0
-    };
-
-    if (editingItem) {
-      // Keep existing ID when editing
-      onUpdateItem(editingItem.id, itemData);
-    } else {
-      // Generate new ID for new items
-      const generatedId = generateItemId(formData.name, formData.category);
-      
-      // Ensure ID is unique by adding a counter if needed
-      let finalId = generatedId;
-      let counter = 1;
-      while (items.some(item => item.id === finalId)) {
-        finalId = `${generatedId}-${counter}`;
-        counter++;
+      if (editingItem) {
+        // Keep existing ID when editing
+        itemData.id = editingItem.id;
+        await updateMasterItem(editingItem.id, itemData);
+        toast.success(`Updated item "${itemData.name}"`, {
+          duration: 3000,
+          icon: '✏️',
+        });
+      } else {
+        // Generate new ID for new items
+        const generatedId = generateItemId(itemData.name, itemData.category);
+        
+        // Ensure ID is unique by adding a counter if needed
+        let finalId = generatedId;
+        let counter = 1;
+        while (items.some(item => item.id === finalId)) {
+          finalId = `${generatedId}-${counter}`;
+          counter++;
+        }
+        
+        itemData.id = finalId;
+        await addMasterItem(itemData);
+        toast.success(`Added item "${itemData.name}"`, {
+          duration: 3000,
+          icon: '➕',
+        });
       }
-      
-      itemData.id = finalId;
-      onAddItem(itemData);
+
+      resetFormState();
+      return itemData;
+    } catch (error) {
+      const errorMessage = `Failed to ${editingItem ? 'update' : 'add'} item: ${error.message}`;
+      toast.error(errorMessage, {
+        duration: 5000,
+        icon: '❌',
+      });
+      throw new Error(errorMessage);
     }
+  }, [editingItem, items, updateMasterItem, addMasterItem, resetFormState]);
 
-    resetForm();
-  };
-
-  const startEdit = (item) => {
-    setFormData({ ...item });
+  const startEdit = useCallback((item) => {
+    // Prepare item data for form, ensuring all required fields exist
+    const itemForForm = {
+      ...defaultFormValues,
+      ...item,
+      // Ensure arrays exist
+      tags: item.tags || [],
+      dependencies: item.dependencies || [],
+      // Ensure metadata exists
+      metadata: {
+        ...defaultFormValues.metadata,
+        ...(item.metadata || {})
+      }
+    };
+    
+    setValues(itemForForm, false); // Don't validate immediately when loading
     setEditingItem(item);
     setIsAddingItem(true);
-  };
+  }, [setValues]);
 
-  const addDependency = () => {
-    setFormData(prev => ({
-      ...prev,
-      dependencies: [...prev.dependencies, { itemId: '', quantity: 1 }]
-    }));
-  };
+  const addDependency = useCallback(() => {
+    const newDependencies = [...formData.dependencies, { itemId: '', quantity: 1, isOptional: false }];
+    setValue('dependencies', newDependencies);
+  }, [formData.dependencies, setValue]);
 
-  const updateDependency = (index, field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      dependencies: prev.dependencies.map((dep, i) => 
-        i === index ? { ...dep, [field]: value } : dep
-      )
-    }));
-  };
+  const updateDependency = useCallback((index, field, value) => {
+    const updatedDependencies = formData.dependencies.map((dep, i) => 
+      i === index ? { ...dep, [field]: value } : dep
+    );
+    setValue('dependencies', updatedDependencies);
+  }, [formData.dependencies, setValue]);
 
-  const removeDependency = (index) => {
-    setFormData(prev => ({
-      ...prev,
-      dependencies: prev.dependencies.filter((_, i) => i !== index)
-    }));
-  };
+  const removeDependency = useCallback((index) => {
+    const filteredDependencies = formData.dependencies.filter((_, i) => i !== index);
+    setValue('dependencies', filteredDependencies);
+  }, [formData.dependencies, setValue]);
 
   const [showImportModal, setShowImportModal] = useState(false);
   const [importedItems, setImportedItems] = useState([]);
@@ -203,7 +336,7 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
     }
   }
 
-  async function handleImportSubmit() {
+  const handleImportSubmit = useCallback(async () => {
     if (!importedItems.length) return;
     setImportError("");
     try {
@@ -218,15 +351,19 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
       if (result.success) {
         setShowImportModal(false);
         setImportedItems([]);
-        alert(`Imported ${importedItems.length} items successfully!`);
-        if (onItemsChanged) onItemsChanged();
+        toast.success(`Imported ${importedItems.length} items successfully!`, {
+          duration: 4000,
+          icon: '📥',
+        });
+        // Refresh the master database from server
+        // This would typically trigger a refetch of data
       } else {
         setImportError(result.error || "Import failed. Please check your data.");
       }
     } catch (err) {
       setImportError("Import failed: " + err.message);
     }
-  }
+  }, [importedItems]);
 
   if (!isOpen) return null;
 
@@ -249,7 +386,7 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                 Import Items
               </button>
               <button 
-                onClick={onClose} 
+                onClick={() => closeModal('itemEditor')} 
                 className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-all duration-200"
               >
                 <X size={24} />
@@ -322,7 +459,7 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                             <Edit3 size={16} />
                           </button>
                           <button
-                            onClick={() => onDeleteItem(item.id)}
+                            onClick={() => deleteMasterItem(item.id)}
                             className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-all duration-200 transform hover:scale-110"
                             title="Delete item"
                           >
@@ -356,7 +493,7 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                   setShowFloatingButton(scrollTop > 100 && scrollTop < scrollHeight - clientHeight - 100);
                 }}
               >
-                <form id="item-form" onSubmit={handleSubmit} className="p-4 space-y-4">
+                <form id="item-form" onSubmit={handleFormSubmit} className="p-4 space-y-4">
                 {editingItem ? (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                     <p className="text-sm text-blue-800">
@@ -376,127 +513,103 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                   )
                 )}
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Name *</label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full px-3 py-2 border rounded-lg"
-                    value={formData.name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Item name"
+                <ValidatedInput
+                  label="Name"
+                  required
+                  placeholder="Item name"
+                  fieldProps={getFieldProps('name')}
+                  fieldState={getFieldState('name')}
+                />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <ValidatedInput
+                    label="Manufacturer"
+                    placeholder="Manufacturer name"
+                    fieldProps={getFieldProps('manufacturer')}
+                    fieldState={getFieldState('manufacturer')}
+                  />
+                  <ValidatedInput
+                    label="Part Number"
+                    placeholder="Part/Model number"
+                    className="font-mono"
+                    fieldProps={getFieldProps('partNumber')}
+                    fieldState={getFieldState('partNumber')}
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Manufacturer</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 border rounded-lg"
-                      value={formData.manufacturer}
-                      onChange={(e) => setFormData(prev => ({ ...prev, manufacturer: e.target.value }))}
-                      placeholder="Manufacturer name"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Part Number</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 border rounded-lg font-mono"
-                      value={formData.partNumber}
-                      onChange={(e) => setFormData(prev => ({ ...prev, partNumber: e.target.value }))}
-                      placeholder="Part/Model number"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Category *</label>
-                    <select
-                      required
-                      className="w-full px-3 py-2 border rounded-lg"
-                      value={formData.category}
-                      onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                    >
-                      <option value="">Select category</option>
-                      {categories.map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Unit</label>
-                    <select
-                      className="w-full px-3 py-2 border rounded-lg"
-                      value={formData.unit}
-                      onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                    >
-                      {units.map(unit => (
-                        <option key={unit} value={unit}>{unit}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <ValidatedInput
+                    label="Category"
+                    required
+                    type="select"
+                    fieldProps={getFieldProps('category')}
+                    fieldState={getFieldState('category')}
+                  >
+                    <option value="">Select category</option>
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </ValidatedInput>
+                  <ValidatedInput
+                    label="Unit"
+                    type="select"
+                    fieldProps={getFieldProps('unit')}
+                    fieldState={getFieldState('unit')}
+                  >
+                    {units.map(unit => (
+                      <option key={unit} value={unit}>{unit}</option>
+                    ))}
+                  </ValidatedInput>
                 </div>
 
                 {/* Pricing Section */}
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-green-800 mb-3">Pricing Information</h4>
                   <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Unit List Price</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        className="w-full px-3 py-2 border rounded-lg"
-                        value={formData.unitPrice}
-                        onChange={(e) => setFormData(prev => ({ ...prev, unitPrice: e.target.value }))}
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Unit Net Price</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        className="w-full px-3 py-2 border rounded-lg"
-                        value={formData.unitNetPrice}
-                        onChange={(e) => setFormData(prev => ({ ...prev, unitNetPrice: e.target.value }))}
-                        placeholder="Auto-calculated"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Discount (%)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="100"
-                        className="w-full px-3 py-2 border rounded-lg"
-                        value={formData.discount}
-                        onChange={(e) => {
+                    <ValidatedInput
+                      label="Unit List Price"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      fieldProps={getFieldProps('unitPrice')}
+                      fieldState={getFieldState('unitPrice')}
+                    />
+                    <ValidatedInput
+                      label="Unit Net Price"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Auto-calculated"
+                      fieldProps={getFieldProps('unitNetPrice')}
+                      fieldState={getFieldState('unitNetPrice')}
+                    />
+                    <ValidatedInput
+                      label="Discount (%)"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      placeholder="0.0"
+                      fieldProps={{
+                        ...getFieldProps('discount'),
+                        onChange: (e) => {
                           const discount = parseFloat(e.target.value) || 0;
                           const listPrice = parseFloat(formData.unitPrice) || 0;
                           const netPrice = listPrice * (1 - discount / 100);
-                          setFormData(prev => ({ 
-                            ...prev, 
-                            discount: e.target.value,
-                            unitNetPrice: netPrice.toFixed(2)
-                          }));
-                        }}
-                        placeholder="0.0"
-                      />
-                    </div>
+                          setValue('discount', e.target.value);
+                          setValue('unitNetPrice', netPrice.toFixed(2));
+                        }
+                      }}
+                      fieldState={getFieldState('discount')}
+                    />
                   </div>
                   <div className="mt-3">
-                    <label className="block text-sm font-medium mb-1">Pricing Term</label>
-                    <select
-                      className="w-full px-3 py-2 border rounded-lg"
-                      value={formData.pricingTerm}
-                      onChange={(e) => setFormData(prev => ({ ...prev, pricingTerm: e.target.value }))}
+                    <ValidatedInput
+                      label="Pricing Term"
+                      type="select"
+                      fieldProps={getFieldProps('pricingTerm')}
+                      fieldState={getFieldState('pricingTerm')}
                     >
                       <option value="Each">Each</option>
                       <option value="Per Meter">Per Meter</option>
@@ -504,7 +617,7 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                       <option value="Per Kg">Per Kg</option>
                       <option value="Per Liter">Per Liter</option>
                       <option value="Per Set">Per Set</option>
-                    </select>
+                    </ValidatedInput>
                   </div>
                 </div>
 
@@ -513,41 +626,38 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                   <h4 className="text-sm font-semibold text-blue-800 mb-3">Service & Delivery Information</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Service Duration (Months)</label>
-                      <input
+                      <ValidatedInput
+                        label="Service Duration (Months)"
                         type="number"
                         min="0"
-                        className="w-full px-3 py-2 border rounded-lg"
-                        value={formData.serviceDuration}
-                        onChange={(e) => setFormData(prev => ({ ...prev, serviceDuration: e.target.value }))}
                         placeholder="0"
+                        fieldProps={getFieldProps('serviceDuration')}
+                        fieldState={getFieldState('serviceDuration')}
                       />
                       <p className="text-xs text-gray-500 mt-1">Warranty/service period in months</p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Estimated Lead Time (Days)</label>
-                      <input
+                      <ValidatedInput
+                        label="Estimated Lead Time (Days)"
                         type="number"
                         min="0"
-                        className="w-full px-3 py-2 border rounded-lg"
-                        value={formData.estimatedLeadTime}
-                        onChange={(e) => setFormData(prev => ({ ...prev, estimatedLeadTime: e.target.value }))}
                         placeholder="0"
+                        fieldProps={getFieldProps('estimatedLeadTime')}
+                        fieldState={getFieldState('estimatedLeadTime')}
                       />
                       <p className="text-xs text-gray-500 mt-1">Expected delivery time in days</p>
                     </div>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Description</label>
-                  <textarea
-                    className="w-full px-3 py-2 border rounded-lg h-20"
-                    value={formData.description}
-                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Item description"
-                  />
-                </div>
+                <ValidatedInput
+                  label="Description"
+                  type="textarea"
+                  className="h-20"
+                  placeholder="Item description"
+                  fieldProps={getFieldProps('description')}
+                  fieldState={getFieldState('description')}
+                />
 
                 <div>
                   <div className="flex justify-between items-center mb-2">
@@ -600,8 +710,19 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                 <button
                   type="submit"
                   form="item-form"
-                  className="fixed bottom-8 right-8 bg-gradient-to-r from-green-500 to-green-600 text-white p-4 rounded-full shadow-2xl hover:from-green-600 hover:to-green-700 transition-all duration-300 transform hover:scale-110 z-30 animate-fadeIn"
-                  title={editingItem ? 'Update Item' : 'Add Item'}
+                  disabled={!isFormValid || isSubmitting}
+                  className={`fixed bottom-8 right-8 p-4 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-110 z-30 animate-fadeIn ${
+                    !isFormValid || isSubmitting
+                      ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
+                  }`}
+                  title={
+                    !isFormValid 
+                      ? 'Please fix validation errors' 
+                      : isSubmitting 
+                      ? 'Submitting...' 
+                      : (editingItem ? 'Update Item' : 'Add Item')
+                  }
                 >
                   <Save size={24} />
                 </button>
@@ -613,15 +734,24 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                   <button
                     type="submit"
                     form="item-form"
-                    className="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-3 rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                    disabled={!isFormValid || isSubmitting}
+                    className={`flex-1 px-4 py-3 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 ${
+                      !isFormValid || isSubmitting
+                        ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
+                    }`}
                   >
                     <Save size={18} />
-                    {editingItem ? 'Update Item' : 'Add Item'}
+                    {isSubmitting 
+                      ? (editingItem ? 'Updating...' : 'Adding...') 
+                      : (editingItem ? 'Update Item' : 'Add Item')
+                    }
                   </button>
                   <button
                     type="button"
-                    onClick={resetForm}
-                    className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 flex items-center gap-2"
+                    onClick={resetFormState}
+                    disabled={isSubmitting}
+                    className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <X size={16} />
                     Cancel
@@ -630,11 +760,11 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
                 
                 {/* Progress indicator */}
                 <div className="mt-2 flex items-center justify-center gap-2 text-xs text-gray-500">
-                  <div className={`w-2 h-2 rounded-full ${formData.name ? 'bg-green-400' : 'bg-gray-300'}`}></div>
-                  <div className={`w-2 h-2 rounded-full ${formData.category ? 'bg-green-400' : 'bg-gray-300'}`}></div>
-                  <div className={`w-2 h-2 rounded-full ${formData.unitPrice > 0 ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${formData.name && !formErrors.name ? 'bg-green-400' : formErrors.name ? 'bg-red-400' : 'bg-gray-300'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${formData.category && !formErrors.category ? 'bg-green-400' : formErrors.category ? 'bg-red-400' : 'bg-gray-300'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${formData.unitPrice > 0 && !formErrors.unitPrice ? 'bg-green-400' : formErrors.unitPrice ? 'bg-red-400' : 'bg-gray-300'}`}></div>
                   <span className="ml-2">
-                    {[formData.name, formData.category, formData.unitPrice > 0].filter(Boolean).length}/3 required fields
+                    {isFormValid ? 'Form is valid' : `${Object.keys(formErrors).length} validation errors`}
                   </span>
                 </div>
               </div>
@@ -711,6 +841,8 @@ const ItemManager = ({ isOpen, onClose, items, categories, onAddItem, onUpdateIt
   );
 
   
-};
+});
+
+ItemManager.displayName = 'ItemManager';
 
 export default ItemManager;

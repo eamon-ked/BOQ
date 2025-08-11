@@ -1,3 +1,5 @@
+import toast from 'react-hot-toast';
+
 // API client for better-sqlite3 backend
 class DatabaseService {
   constructor() {
@@ -17,8 +19,16 @@ class DatabaseService {
 
       this.isInitialized = true;
       console.log('Database connection initialized successfully');
+      toast.success('Database connected successfully', {
+        duration: 2000,
+        icon: '🔗',
+      });
     } catch (error) {
       console.error('Failed to initialize database connection:', error);
+      toast.error('Failed to connect to database. Please start the server.', {
+        duration: 6000,
+        icon: '🔌',
+      });
       throw new Error('Backend server is not running. Please start the server with: node server/server.js');
     }
   }
@@ -137,11 +147,16 @@ class DatabaseService {
     return response.data;
   }
 
-  async createBOQProject(name, description = '') {
+  async createBOQProject(projectData) {
     try {
+      // Support both old and new API formats
+      const payload = typeof projectData === 'string' 
+        ? { name: projectData, description: arguments[1] || '' }
+        : projectData;
+
       const response = await this.apiCall('/boq-projects', {
         method: 'POST',
-        body: JSON.stringify({ name, description }),
+        body: JSON.stringify(payload),
       });
       return { success: true, projectId: response.projectId };
     } catch (error) {
@@ -150,11 +165,16 @@ class DatabaseService {
     }
   }
 
-  async updateBOQProject(projectId, name, description = '') {
+  async updateBOQProject(projectId, projectData) {
     try {
+      // Support both old and new API formats
+      const payload = typeof projectData === 'string' 
+        ? { name: projectData, description: arguments[2] || '' }
+        : projectData;
+
       await this.apiCall(`/boq-projects/${projectId}`, {
         method: 'PUT',
-        body: JSON.stringify({ name, description }),
+        body: JSON.stringify(payload),
       });
       return true;
     } catch (error) {
@@ -189,6 +209,69 @@ class DatabaseService {
       return true;
     } catch (error) {
       console.error('Failed to save BOQ items:', error);
+      throw error;
+    }
+  }
+
+  // Project Templates methods
+  async getProjectTemplates(category = null) {
+    try {
+      const endpoint = category ? `/project-templates?category=${encodeURIComponent(category)}` : '/project-templates';
+      const response = await this.apiCall(endpoint);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get project templates:', error);
+      throw error;
+    }
+  }
+
+  async createProjectTemplate(templateData) {
+    try {
+      const response = await this.apiCall('/project-templates', {
+        method: 'POST',
+        body: JSON.stringify(templateData),
+      });
+      return { success: true, projectId: response.projectId };
+    } catch (error) {
+      console.error('Failed to create project template:', error);
+      throw error;
+    }
+  }
+
+  async updateProjectTemplate(templateId, templateData) {
+    try {
+      await this.apiCall(`/project-templates/${templateId}`, {
+        method: 'PUT',
+        body: JSON.stringify(templateData),
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to update project template:', error);
+      throw error;
+    }
+  }
+
+  async deleteProjectTemplate(templateId) {
+    try {
+      await this.apiCall(`/project-templates/${templateId}`, {
+        method: 'DELETE',
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to delete project template:', error);
+      throw error;
+    }
+  }
+
+  async cloneBOQProject(sourceProjectId, newProjectData) {
+    try {
+      const response = await this.apiCall(`/boq-projects/${sourceProjectId}/clone`, {
+        method: 'POST',
+        body: JSON.stringify(newProjectData),
+      });
+      return { success: true, projectId: response.projectId };
+    } catch (error) {
+      console.error('Failed to clone BOQ project:', error);
       throw error;
     }
   }

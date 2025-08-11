@@ -1,7 +1,133 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
 import { Trash2, ArrowRight, Lock, Package, Layers, Plus, MoreHorizontal, Maximize2, Minimize2 } from 'lucide-react';
+import { useAppStore } from '../store';
 
-const BOQTable = ({ items, onUpdateQuantity, onRemoveItem, masterDatabase }) => {
+// Memoized table row component for performance optimization
+const BOQTableRow = memo(({ 
+  item, 
+  index, 
+  isCompact, 
+  rowHeight, 
+  textSize, 
+  showAdvanced, 
+  editingCell, 
+  editValue, 
+  onCellEdit, 
+  onCellSave, 
+  onRemoveItem,
+  onEditValueChange,
+  inputRef 
+}) => {
+  const calculateExtendedNetPrice = useCallback((item) => {
+    const unitNetPrice = item.unitNetPrice || item.unitPrice;
+    return item.quantity * unitNetPrice;
+  }, []);
+
+  return (
+    <tr className="hover:bg-blue-50/50 transition-colors group">
+      <td className={`px-2 ${rowHeight} ${textSize} font-medium text-gray-900 border-r border-gray-100`}>
+        {index + 1}
+      </td>
+      <td className={`px-3 ${rowHeight} ${textSize} font-mono text-gray-900 border-r border-gray-100`}>
+        <div className="font-medium">{item.partNumber || 'N/A'}</div>
+        {!isCompact && (
+          <div className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block mt-1">
+            {item.category}
+          </div>
+        )}
+      </td>
+      <td className={`px-3 ${rowHeight} ${textSize} text-gray-900 border-r border-gray-100`}>
+        <div className="font-medium">{item.name}</div>
+        {!isCompact && item.description && (
+          <div className="text-xs text-gray-500 mt-1 truncate">{item.description}</div>
+        )}
+      </td>
+      <td className={`px-2 ${rowHeight} text-center border-r border-gray-100`}>
+        {editingCell === `${item.id}-quantity` ? (
+          <input
+            ref={inputRef}
+            type="number"
+            min="1"
+            value={editValue}
+            onChange={(e) => onEditValueChange(e.target.value)}
+            onBlur={onCellSave}
+            className="w-12 px-1 py-0.5 border border-blue-300 rounded text-center text-xs focus:ring-1 focus:ring-blue-500"
+          />
+        ) : (
+          <button
+            onClick={() => onCellEdit(item.id, 'quantity', item.quantity)}
+            className={`${textSize} font-medium hover:bg-blue-100 px-2 py-1 rounded transition-colors`}
+            data-testid={`quantity-button-${item.id}`}
+          >
+            {item.quantity}
+          </button>
+        )}
+      </td>
+      <td className={`px-3 ${rowHeight} ${textSize} text-right text-gray-900 border-r border-gray-100`}>
+        ${item.unitPrice.toFixed(2)}
+      </td>
+      <td className={`px-3 ${rowHeight} text-right border-r border-gray-100`}>
+        <span className={`font-bold ${isCompact ? 'text-sm' : 'text-base'} text-green-600`}>
+          ${calculateExtendedNetPrice(item).toFixed(2)}
+        </span>
+      </td>
+      {showAdvanced && (
+        <>
+          <td className={`px-2 ${rowHeight} ${textSize} text-gray-700 border-r border-gray-100 truncate`}>
+            {item.manufacturer || 'N/A'}
+          </td>
+          <td className={`px-2 ${rowHeight} text-center border-r border-gray-100`}>
+            <span className={`px-1 py-0.5 rounded text-xs font-medium ${
+              (item.estimatedLeadTime || 0) <= 7 ? 'bg-green-100 text-green-800' :
+              (item.estimatedLeadTime || 0) <= 14 ? 'bg-yellow-100 text-yellow-800' :
+              'bg-red-100 text-red-800'
+            }`}>
+              {item.estimatedLeadTime || 0}d
+            </span>
+          </td>
+          <td className={`px-2 ${rowHeight} text-center border-r border-gray-100`}>
+            <span className={`px-1 py-0.5 rounded text-xs font-medium ${
+              (item.discount || 0) > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {(item.discount || 0).toFixed(0)}%
+            </span>
+          </td>
+        </>
+      )}
+      <td className={`px-2 ${rowHeight} text-center`}>
+        <button
+          onClick={() => onRemoveItem(item.id)}
+          className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition-all opacity-0 group-hover:opacity-100"
+          title="Remove item"
+        >
+          <Trash2 size={14} />
+        </button>
+      </td>
+    </tr>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function for optimization
+  return (
+    prevProps.item.id === nextProps.item.id &&
+    prevProps.item.quantity === nextProps.item.quantity &&
+    prevProps.item.unitPrice === nextProps.item.unitPrice &&
+    prevProps.editingCell === nextProps.editingCell &&
+    prevProps.editValue === nextProps.editValue &&
+    prevProps.isCompact === nextProps.isCompact &&
+    prevProps.showAdvanced === nextProps.showAdvanced
+  );
+});
+
+BOQTableRow.displayName = 'BOQTableRow';
+
+const BOQTable = memo(() => {
+  // Get data from store with proper selectors
+  const items = useAppStore((state) => state.data.boqItems);
+  const masterDatabase = useAppStore((state) => state.data.masterDatabase);
+  
+  // Get actions from store
+  const updateBOQItemQuantity = useAppStore((state) => state.updateBOQItemQuantity);
+  const removeBOQItem = useAppStore((state) => state.removeBOQItem);
   const [density, setDensity] = useState('comfortable'); // 'comfortable' or 'compact'
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [editingCell, setEditingCell] = useState(null);
@@ -58,23 +184,31 @@ const BOQTable = ({ items, onUpdateQuantity, onRemoveItem, masterDatabase }) => 
     }
   }, [editingCell]);
 
-  const handleCellEdit = (itemId, field, currentValue) => {
+  const handleCellEdit = useCallback((itemId, field, currentValue) => {
     setEditingCell(`${itemId}-${field}`);
     setEditValue(currentValue.toString());
-  };
+  }, []);
 
-  const handleCellSave = () => {
+  const handleCellSave = useCallback(() => {
     if (editingCell) {
       const [itemId, field] = editingCell.split('-');
       if (field === 'quantity') {
         const newQuantity = parseInt(editValue) || 1;
-        onUpdateQuantity(itemId, newQuantity);
+        updateBOQItemQuantity(itemId, newQuantity);
       }
       // Add more field handlers as needed
     }
     setEditingCell(null);
     setEditValue('');
-  };
+  }, [editingCell, editValue, updateBOQItemQuantity]);
+
+  const handleRemoveItem = useCallback((itemId) => {
+    removeBOQItem(itemId);
+  }, [removeBOQItem]);
+
+  const handleEditValueChange = useCallback((value) => {
+    setEditValue(value);
+  }, []);
 
   const isCompact = density === 'compact';
   const rowHeight = isCompact ? 'py-2' : 'py-4';
@@ -186,85 +320,22 @@ const BOQTable = ({ items, onUpdateQuantity, onRemoveItem, masterDatabase }) => 
             <tbody className="bg-white divide-y divide-gray-100">
               {/* Main Items */}
               {mainItems.map((item, index) => (
-                <tr key={`main-${item.id}-${index}`} className="hover:bg-blue-50/50 transition-colors group">
-                  <td className={`px-2 ${rowHeight} ${textSize} font-medium text-gray-900 border-r border-gray-100`}>
-                    {index + 1}
-                  </td>
-                  <td className={`px-3 ${rowHeight} ${textSize} font-mono text-gray-900 border-r border-gray-100`}>
-                    <div className="font-medium">{item.partNumber || 'N/A'}</div>
-                    {!isCompact && (
-                      <div className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block mt-1">
-                        {item.category}
-                      </div>
-                    )}
-                  </td>
-                  <td className={`px-3 ${rowHeight} ${textSize} text-gray-900 border-r border-gray-100`}>
-                    <div className="font-medium">{item.name}</div>
-                    {!isCompact && item.description && (
-                      <div className="text-xs text-gray-500 mt-1 truncate">{item.description}</div>
-                    )}
-                  </td>
-                  <td className={`px-2 ${rowHeight} text-center border-r border-gray-100`}>
-                    {editingCell === `${item.id}-quantity` ? (
-                      <input
-                        ref={inputRef}
-                        type="number"
-                        min="1"
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onBlur={handleCellSave}
-                        className="w-12 px-1 py-0.5 border border-blue-300 rounded text-center text-xs focus:ring-1 focus:ring-blue-500"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => handleCellEdit(item.id, 'quantity', item.quantity)}
-                        className={`${textSize} font-medium hover:bg-blue-100 px-2 py-1 rounded transition-colors`}
-                      >
-                        {item.quantity}
-                      </button>
-                    )}
-                  </td>
-                  <td className={`px-3 ${rowHeight} ${textSize} text-right text-gray-900 border-r border-gray-100`}>
-                    ${item.unitPrice.toFixed(2)}
-                  </td>
-                  <td className={`px-3 ${rowHeight} text-right border-r border-gray-100`}>
-                    <span className={`font-bold ${isCompact ? 'text-sm' : 'text-base'} text-green-600`}>
-                      ${calculateExtendedNetPrice(item).toFixed(2)}
-                    </span>
-                  </td>
-                  {showAdvanced && (
-                    <>
-                      <td className={`px-2 ${rowHeight} ${textSize} text-gray-700 border-r border-gray-100 truncate`}>
-                        {item.manufacturer || 'N/A'}
-                      </td>
-                      <td className={`px-2 ${rowHeight} text-center border-r border-gray-100`}>
-                        <span className={`px-1 py-0.5 rounded text-xs font-medium ${
-                          (item.estimatedLeadTime || 0) <= 7 ? 'bg-green-100 text-green-800' :
-                          (item.estimatedLeadTime || 0) <= 14 ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {item.estimatedLeadTime || 0}d
-                        </span>
-                      </td>
-                      <td className={`px-2 ${rowHeight} text-center border-r border-gray-100`}>
-                        <span className={`px-1 py-0.5 rounded text-xs font-medium ${
-                          (item.discount || 0) > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                        }`}>
-                          {(item.discount || 0).toFixed(0)}%
-                        </span>
-                      </td>
-                    </>
-                  )}
-                  <td className={`px-2 ${rowHeight} text-center`}>
-                    <button
-                      onClick={() => onRemoveItem(item.id)}
-                      className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition-all opacity-0 group-hover:opacity-100"
-                      title="Remove item"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
+                <BOQTableRow
+                  key={`main-${item.id}-${index}`}
+                  item={item}
+                  index={index}
+                  isCompact={isCompact}
+                  rowHeight={rowHeight}
+                  textSize={textSize}
+                  showAdvanced={showAdvanced}
+                  editingCell={editingCell}
+                  editValue={editValue}
+                  onCellEdit={handleCellEdit}
+                  onCellSave={handleCellSave}
+                  onRemoveItem={handleRemoveItem}
+                  onEditValueChange={handleEditValueChange}
+                  inputRef={inputRef}
+                />
               ))}
               
               {/* Dependencies */}
@@ -383,6 +454,8 @@ const BOQTable = ({ items, onUpdateQuantity, onRemoveItem, masterDatabase }) => 
       )}
     </>
   );
-};
+});
+
+BOQTable.displayName = 'BOQTable';
 
 export default BOQTable;

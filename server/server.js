@@ -332,6 +332,145 @@ app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'Server is running', timestamp: new Date().toISOString() });
 });
 
+// Performance monitoring endpoints
+app.get('/api/performance/stats', (req, res) => {
+  try {
+    const stats = db.getQueryStats();
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+app.post('/api/performance/reset', (req, res) => {
+  try {
+    db.resetQueryStats();
+    res.json({ success: true, message: 'Query statistics reset' });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+app.post('/api/performance/optimize', (req, res) => {
+  try {
+    db.optimizeConnection();
+    res.json({ success: true, message: 'Database connection optimized' });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+// Enhanced search endpoint
+app.get('/api/items/search', (req, res) => {
+  try {
+    const { 
+      q: searchTerm, 
+      category, 
+      minPrice, 
+      maxPrice, 
+      limit = 100, 
+      offset = 0 
+    } = req.query;
+    
+    const priceRange = (minPrice !== undefined && maxPrice !== undefined) 
+      ? [parseFloat(minPrice), parseFloat(maxPrice)] 
+      : null;
+    
+    const items = db.searchItems(
+      searchTerm, 
+      category, 
+      priceRange, 
+      parseInt(limit), 
+      parseInt(offset)
+    );
+    
+    res.json({ success: true, data: items });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+// Category-specific items endpoint
+app.get('/api/categories/:category/items', (req, res) => {
+  try {
+    const { category } = req.params;
+    const items = db.getItemsByCategory(category);
+    res.json({ success: true, data: items });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+// Project Templates routes
+app.get('/api/project-templates', (req, res) => {
+  try {
+    const { category } = req.query;
+    const templates = db.getProjectTemplates(category);
+    res.json({ success: true, data: templates });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+app.post('/api/project-templates', (req, res) => {
+  try {
+    const templateData = req.body;
+    const result = db.createProjectTemplate(templateData);
+    if (result.success) {
+      res.json({ success: true, data: result });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+app.put('/api/project-templates/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const templateData = req.body;
+    const result = db.updateProjectTemplate(parseInt(id), templateData);
+    if (result.success) {
+      res.json({ success: true, data: result });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+app.delete('/api/project-templates/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = db.deleteProjectTemplate(parseInt(id));
+    if (result.success) {
+      res.json({ success: true, data: result });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+// Clone BOQ Project (used for template application)
+app.post('/api/boq-projects/:id/clone', (req, res) => {
+  try {
+    const { id } = req.params;
+    const cloneData = req.body;
+    const result = db.cloneBOQProject(parseInt(id), cloneData);
+    if (result.success) {
+      res.json({ success: true, data: result });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('Shutting down server...');

@@ -1,5 +1,6 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const MigrationRunner = require('./migration-runner');
 
 class DatabaseService {
   constructor() {
@@ -14,11 +15,36 @@ class DatabaseService {
       dbPath = path.join(__dirname, 'boq.db');
     }
     this.db = new Database(dbPath);
+    
+    // Database optimization settings
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
+    this.db.pragma('synchronous = NORMAL');
+    this.db.pragma('cache_size = 10000');
+    this.db.pragma('temp_store = MEMORY');
+    this.db.pragma('mmap_size = 268435456'); // 256MB
+    
+    // Performance monitoring
+    this.queryStats = new Map();
+    this.preparedStatements = new Map();
     
     this.initializeTables();
+    this.runMigrations();
+    this.createIndexes();
     this.seedInitialData();
+  }
+
+  /**
+   * Run database migrations
+   */
+  runMigrations() {
+    try {
+      const migrationRunner = new MigrationRunner(this.db);
+      migrationRunner.runPendingMigrations();
+    } catch (error) {
+      console.error('Migration failed:', error);
+      throw error;
+    }
   }
 
   initializeTables() {
@@ -95,6 +121,53 @@ class DatabaseService {
     `);
 
     console.log('Database tables initialized');
+  }
+
+  createIndexes() {
+    // Performance indexes for frequently queried columns
+    const indexes = [
+      // Items table indexes
+      'CREATE INDEX IF NOT EXISTS idx_items_category ON items(category)',
+      'CREATE INDEX IF NOT EXISTS idx_items_name ON items(name)',
+      'CREATE INDEX IF NOT EXISTS idx_items_manufacturer ON items(manufacturer)',
+      'CREATE INDEX IF NOT EXISTS idx_items_unit_price ON items(unit_price)',
+      'CREATE INDEX IF NOT EXISTS idx_items_part_number ON items(part_number)',
+      'CREATE INDEX IF NOT EXISTS idx_items_name_category ON items(name, category)',
+      'CREATE INDEX IF NOT EXISTS idx_items_price_category ON items(unit_price, category)',
+      
+      // Dependencies table indexes (foreign key relationships)
+      'CREATE INDEX IF NOT EXISTS idx_dependencies_item_id ON dependencies(item_id)',
+      'CREATE INDEX IF NOT EXISTS idx_dependencies_dependency_id ON dependencies(dependency_id)',
+      'CREATE INDEX IF NOT EXISTS idx_dependencies_composite ON dependencies(item_id, dependency_id)',
+      
+      // BOQ items table indexes (foreign key relationships)
+      'CREATE INDEX IF NOT EXISTS idx_boq_items_project_id ON boq_items(project_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boq_items_item_id ON boq_items(item_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boq_items_required_by ON boq_items(required_by)',
+      'CREATE INDEX IF NOT EXISTS idx_boq_items_is_dependency ON boq_items(is_dependency)',
+      'CREATE INDEX IF NOT EXISTS idx_boq_items_project_item ON boq_items(project_id, item_id)',
+      
+      // BOQ projects table indexes
+      'CREATE INDEX IF NOT EXISTS idx_boq_projects_name ON boq_projects(name)',
+      'CREATE INDEX IF NOT EXISTS idx_boq_projects_updated_at ON boq_projects(updated_at)',
+      
+      // Categories table indexes
+      'CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name)',
+      
+      // Full-text search indexes for text fields
+      'CREATE INDEX IF NOT EXISTS idx_items_description ON items(description)',
+      'CREATE INDEX IF NOT EXISTS idx_items_search_composite ON items(name, description, manufacturer, part_number)'
+    ];
+
+    indexes.forEach(indexSQL => {
+      try {
+        this.db.exec(indexSQL);
+      } catch (error) {
+        console.warn(`Index creation warning: ${error.message}`);
+      }
+    });
+
+    console.log('Database indexes created');
   }
 
   seedInitialData() {
@@ -411,14 +484,23 @@ class DatabaseService {
 
   // Categories methods
   getCategories() {
-    const stmt = this.db.prepare('SELECT name FROM categories ORDER BY name');
-    return stmt.all().map(row => row.name);
+    const startTime = performance.now();
+    const stmt = this.getPreparedStatement('getCategories', 'SELECT name FROM categories ORDER BY name');
+    const result = stmt.all().map(row => row.name);
+    const endTime = performance.now();
+    
+    this.logQuery('getCategories', startTime, endTime, result.length);
+    return result;
   }
 
   addCategory(name) {
     try {
-      const stmt = this.db.prepare('INSERT INTO categories (name) VALUES (?)');
+      const startTime = performance.now();
+      const stmt = this.getPreparedStatement('addCategory', 'INSERT INTO categories (name) VALUES (?)');
       stmt.run(name);
+      const endTime = performance.now();
+      
+      this.logQuery('addCategory', startTime, endTime, 1);
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -427,11 +509,15 @@ class DatabaseService {
 
   updateCategory(oldName, newName) {
     const transaction = this.db.transaction(() => {
-      const updateCategory = this.db.prepare('UPDATE categories SET name = ? WHERE name = ?');
-      const updateItems = this.db.prepare('UPDATE items SET category = ? WHERE category = ?');
+      const startTime = performance.now();
+      const updateCategory = this.getPreparedStatement('updateCategory', 'UPDATE categories SET name = ? WHERE name = ?');
+      const updateItems = this.getPreparedStatement('updateCategoryItems', 'UPDATE items SET category = ? WHERE category = ?');
       
       updateCategory.run(newName, oldName);
       updateItems.run(newName, oldName);
+      const endTime = performance.now();
+      
+      this.logQuery('updateCategory', startTime, endTime, 2);
     });
 
     try {
@@ -444,14 +530,20 @@ class DatabaseService {
 
   deleteCategory(name) {
     try {
+      const startTime = performance.now();
+      
       // Check if category is in use
-      const itemCount = this.db.prepare('SELECT COUNT(*) as count FROM items WHERE category = ?').get(name);
+      const checkStmt = this.getPreparedStatement('checkCategoryUsage', 'SELECT COUNT(*) as count FROM items WHERE category = ?');
+      const itemCount = checkStmt.get(name);
       if (itemCount.count > 0) {
         throw new Error(`Cannot delete category "${name}" because ${itemCount.count} items are using it.`);
       }
 
-      const stmt = this.db.prepare('DELETE FROM categories WHERE name = ?');
-      stmt.run(name);
+      const deleteStmt = this.getPreparedStatement('deleteCategory', 'DELETE FROM categories WHERE name = ?');
+      deleteStmt.run(name);
+      const endTime = performance.now();
+      
+      this.logQuery('deleteCategory', startTime, endTime, 1);
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -460,7 +552,8 @@ class DatabaseService {
 
   // Items methods
   getItems() {
-    const stmt = this.db.prepare(`
+    const startTime = performance.now();
+    const stmt = this.getPreparedStatement('getItems', `
       SELECT i.*, 
              GROUP_CONCAT(d.dependency_id || ':' || d.quantity) as dependencies_str
       FROM items i
@@ -469,7 +562,8 @@ class DatabaseService {
       ORDER BY i.name
     `);
     
-    const items = stmt.all().map(row => {
+    const rawItems = stmt.all();
+    const items = rawItems.map(row => {
       const item = {
         id: row.id,
         name: row.name,
@@ -497,6 +591,105 @@ class DatabaseService {
       return item;
     });
 
+    const endTime = performance.now();
+    this.logQuery('getItems', startTime, endTime, items.length);
+    return items;
+  }
+
+  // Optimized search methods
+  searchItems(searchTerm, category = null, priceRange = null, limit = 100, offset = 0) {
+    const startTime = performance.now();
+    let sql = `
+      SELECT i.*, 
+             GROUP_CONCAT(d.dependency_id || ':' || d.quantity) as dependencies_str
+      FROM items i
+      LEFT JOIN dependencies d ON i.id = d.item_id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (searchTerm) {
+      sql += ` AND (i.name LIKE ? OR i.description LIKE ? OR i.manufacturer LIKE ? OR i.part_number LIKE ?)`;
+      const searchPattern = `%${searchTerm}%`;
+      params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+
+    if (category) {
+      sql += ` AND i.category = ?`;
+      params.push(category);
+    }
+
+    if (priceRange && priceRange.length === 2) {
+      sql += ` AND i.unit_price BETWEEN ? AND ?`;
+      params.push(priceRange[0], priceRange[1]);
+    }
+
+    sql += ` GROUP BY i.id ORDER BY i.name LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+
+    const stmt = this.getPreparedStatement(`searchItems_${searchTerm}_${category}_${priceRange}`, sql);
+    const rawItems = stmt.all(...params);
+    
+    const items = rawItems.map(row => ({
+      id: row.id,
+      name: row.name,
+      category: row.category,
+      manufacturer: row.manufacturer,
+      partNumber: row.part_number,
+      unit: row.unit,
+      unitPrice: row.unit_price,
+      unitNetPrice: row.unit_net_price,
+      serviceDuration: row.service_duration,
+      estimatedLeadTime: row.estimated_lead_time,
+      pricingTerm: row.pricing_term,
+      discount: row.discount,
+      description: row.description,
+      dependencies: row.dependencies_str ? row.dependencies_str.split(',').map(dep => {
+        const [itemId, quantity] = dep.split(':');
+        return { itemId, quantity: parseInt(quantity) };
+      }) : []
+    }));
+
+    const endTime = performance.now();
+    this.logQuery('searchItems', startTime, endTime, items.length);
+    return items;
+  }
+
+  getItemsByCategory(category) {
+    const startTime = performance.now();
+    const stmt = this.getPreparedStatement('getItemsByCategory', `
+      SELECT i.*, 
+             GROUP_CONCAT(d.dependency_id || ':' || d.quantity) as dependencies_str
+      FROM items i
+      LEFT JOIN dependencies d ON i.id = d.item_id
+      WHERE i.category = ?
+      GROUP BY i.id
+      ORDER BY i.name
+    `);
+    
+    const rawItems = stmt.all(category);
+    const items = rawItems.map(row => ({
+      id: row.id,
+      name: row.name,
+      category: row.category,
+      manufacturer: row.manufacturer,
+      partNumber: row.part_number,
+      unit: row.unit,
+      unitPrice: row.unit_price,
+      unitNetPrice: row.unit_net_price,
+      serviceDuration: row.service_duration,
+      estimatedLeadTime: row.estimated_lead_time,
+      pricingTerm: row.pricing_term,
+      discount: row.discount,
+      description: row.description,
+      dependencies: row.dependencies_str ? row.dependencies_str.split(',').map(dep => {
+        const [itemId, quantity] = dep.split(':');
+        return { itemId, quantity: parseInt(quantity) };
+      }) : []
+    }));
+
+    const endTime = performance.now();
+    this.logQuery('getItemsByCategory', startTime, endTime, items.length);
     return items;
   }
 
@@ -620,59 +813,654 @@ class DatabaseService {
 
   // BOQ Projects methods
   getBOQProjects() {
-    const stmt = this.db.prepare(`
+    const startTime = performance.now();
+    const stmt = this.getPreparedStatement('getBOQProjects', `
       SELECT p.*, 
              COUNT(bi.id) as item_count,
              COALESCE(SUM(i.unit_net_price * bi.quantity), 0) as total_value
       FROM boq_projects p
       LEFT JOIN boq_items bi ON p.id = bi.project_id
       LEFT JOIN items i ON bi.item_id = i.id
+      WHERE p.is_template = FALSE OR p.is_template IS NULL
       GROUP BY p.id
       ORDER BY p.updated_at DESC
     `);
-    return stmt.all();
+    const result = stmt.all().map(this.mapProjectFromDb.bind(this));
+    const endTime = performance.now();
+    
+    this.logQuery('getBOQProjects', startTime, endTime, result.length);
+    return result;
   }
 
-  createBOQProject(name, description = '') {
-    try {
+  createBOQProject(projectData) {
+    const transaction = this.db.transaction(() => {
       const stmt = this.db.prepare(`
-        INSERT INTO boq_projects (name, description) 
-        VALUES (?, ?)
+        INSERT INTO boq_projects (
+          name, description, status, client_name, client_contact, client_email,
+          location, estimated_value, deadline, is_template, template_category,
+          template_description, created_from_template, tags, project_settings,
+          notes, priority, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      const result = stmt.run(name, description);
-      return { success: true, projectId: result.lastInsertRowid };
+      
+      const result = stmt.run(
+        projectData.name,
+        projectData.description || '',
+        projectData.status || 'draft',
+        projectData.clientName || null,
+        projectData.clientContact || null,
+        projectData.clientEmail || null,
+        projectData.location || null,
+        projectData.estimatedValue || 0,
+        projectData.deadline || null,
+        projectData.isTemplate ? 1 : 0, // Convert boolean to integer for SQLite
+        projectData.templateCategory || null,
+        projectData.templateDescription || null,
+        projectData.createdFromTemplate || null,
+        projectData.tags ? JSON.stringify(projectData.tags) : null,
+        projectData.projectSettings ? JSON.stringify(projectData.projectSettings) : null,
+        projectData.notes || null,
+        projectData.priority || 1,
+        projectData.createdBy || null
+      );
+
+      // Log project creation
+      this.logProjectHistory(result.lastInsertRowid, 'created', null, null, JSON.stringify(projectData), projectData.createdBy);
+
+      return result.lastInsertRowid;
+    });
+
+    try {
+      const projectId = transaction();
+      return { success: true, projectId };
     } catch (error) {
       return { success: false, error: error.message };
     }
   }
 
-  updateBOQProject(projectId, name, description = '') {
-    try {
+  updateBOQProject(projectId, projectData, updatedBy = null) {
+    const transaction = this.db.transaction(() => {
+      // Get current project data for history logging
+      const currentProject = this.getBOQProjectById(projectId);
+      if (!currentProject.success) {
+        throw new Error('Project not found');
+      }
+
       const stmt = this.db.prepare(`
         UPDATE boq_projects 
-        SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+        SET name = ?, description = ?, status = ?, client_name = ?, client_contact = ?,
+            client_email = ?, location = ?, estimated_value = ?, deadline = ?,
+            template_category = ?, template_description = ?, tags = ?,
+            project_settings = ?, notes = ?, priority = ?, last_modified_by = ?,
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `);
-      stmt.run(name, description, projectId);
+      
+      stmt.run(
+        projectData.name,
+        projectData.description || '',
+        projectData.status || 'draft',
+        projectData.clientName || null,
+        projectData.clientContact || null,
+        projectData.clientEmail || null,
+        projectData.location || null,
+        projectData.estimatedValue || 0,
+        projectData.deadline || null,
+        projectData.templateCategory || null,
+        projectData.templateDescription || null,
+        projectData.tags ? JSON.stringify(projectData.tags) : null,
+        projectData.projectSettings ? JSON.stringify(projectData.projectSettings) : null,
+        projectData.notes || null,
+        projectData.priority || 1,
+        updatedBy,
+        projectId
+      );
+
+      // Log significant changes
+      const current = currentProject.project;
+      if (current.status !== projectData.status) {
+        this.logProjectHistory(projectId, 'status_changed', 'status', current.status, projectData.status, updatedBy);
+      }
+      if (current.name !== projectData.name) {
+        this.logProjectHistory(projectId, 'updated', 'name', current.name, projectData.name, updatedBy);
+      }
+    });
+
+    try {
+      transaction();
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
   }
 
-  deleteBOQProject(projectId) {
+  getBOQProjectById(projectId) {
     try {
+      const startTime = performance.now();
+      const stmt = this.getPreparedStatement('getBOQProjectById', `
+        SELECT p.*, 
+               COUNT(bi.id) as item_count,
+               COALESCE(SUM(i.unit_net_price * bi.quantity), 0) as total_value
+        FROM boq_projects p
+        LEFT JOIN boq_items bi ON p.id = bi.project_id
+        LEFT JOIN items i ON bi.item_id = i.id
+        WHERE p.id = ?
+        GROUP BY p.id
+      `);
+      
+      const result = stmt.get(projectId);
+      const endTime = performance.now();
+      
+      this.logQuery('getBOQProjectById', startTime, endTime, result ? 1 : 0);
+      
+      if (!result) {
+        return { success: false, error: 'Project not found' };
+      }
+
+      return { success: true, project: this.mapProjectFromDb(result) };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  deleteBOQProject(projectId, deletedBy = null) {
+    const transaction = this.db.transaction(() => {
+      // Log deletion before deleting
+      this.logProjectHistory(projectId, 'deleted', null, null, null, deletedBy);
+      
       const stmt = this.db.prepare('DELETE FROM boq_projects WHERE id = ?');
       stmt.run(projectId);
+    });
+
+    try {
+      transaction();
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
+    }
+  }
+
+  // Enhanced project methods for new functionality
+
+  /**
+   * Clone an existing project
+   */
+  cloneBOQProject(sourceProjectId, newProjectData, clonedBy = null) {
+    const transaction = this.db.transaction(() => {
+      // Get source project
+      const sourceResult = this.getBOQProjectById(sourceProjectId);
+      if (!sourceResult.success) {
+        throw new Error('Source project not found');
+      }
+
+      const sourceProject = sourceResult.project;
+      
+      // Create new project with cloned data
+      const clonedProject = {
+        ...sourceProject,
+        ...newProjectData,
+        name: newProjectData.name || `${sourceProject.name} (Copy)`,
+        createdFromTemplate: sourceProject.isTemplate ? sourceProjectId : sourceProject.createdFromTemplate,
+        createdBy: clonedBy,
+        isTemplate: false // Cloned projects are not templates by default
+      };
+
+      const createResult = this.createBOQProject(clonedProject);
+      if (!createResult.success) {
+        throw new Error(createResult.error);
+      }
+
+      const newProjectId = createResult.projectId;
+
+      // Clone BOQ items
+      const boqItems = this.getBOQItems(sourceProjectId);
+      if (boqItems.length > 0) {
+        this.saveBOQItems(newProjectId, boqItems);
+      }
+
+      // If source is a template, increment usage count
+      if (sourceProject.isTemplate) {
+        try {
+          const updateUsageStmt = this.db.prepare(`
+            UPDATE project_templates 
+            SET usage_count = usage_count + 1, updated_at = CURRENT_TIMESTAMP
+            WHERE template_data LIKE '%"projectId":' || ? || '%'
+          `);
+          updateUsageStmt.run(sourceProjectId);
+        } catch (error) {
+          console.warn('Could not update template usage count:', error.message);
+        }
+      }
+
+      // Log cloning action
+      this.logProjectHistory(newProjectId, 'cloned', 'source_project_id', null, sourceProjectId.toString(), clonedBy);
+
+      return newProjectId;
+    });
+
+    try {
+      const projectId = transaction();
+      return { success: true, projectId };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Validate template data
+   */
+  validateTemplateData(templateData) {
+    const errors = [];
+    
+    if (!templateData.name || templateData.name.trim().length === 0) {
+      errors.push('Template name is required');
+    }
+    
+    if (templateData.name && templateData.name.length > 255) {
+      errors.push('Template name must be less than 255 characters');
+    }
+    
+    if (templateData.templateDescription && templateData.templateDescription.length > 2000) {
+      errors.push('Template description must be less than 2000 characters');
+    }
+    
+    if (templateData.templateCategory && templateData.templateCategory.length > 100) {
+      errors.push('Template category must be less than 100 characters');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+
+  /**
+   * Create a project template
+   */
+  createProjectTemplate(templateData, createdBy = null) {
+    try {
+      // Validate template data
+      const validation = this.validateTemplateData(templateData);
+      if (!validation.isValid) {
+        throw new Error(`Template validation failed: ${validation.errors.join(', ')}`);
+      }
+
+      const projectData = {
+        ...templateData,
+        isTemplate: true,
+        status: 'active',
+        createdBy
+      };
+
+      const result = this.createBOQProject(projectData);
+      if (result.success) {
+        // Also create entry in project_templates table for better management
+        const templateStmt = this.db.prepare(`
+          INSERT INTO project_templates (name, description, category, template_data, created_by)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        
+        templateStmt.run(
+          templateData.name,
+          templateData.templateDescription || templateData.description,
+          templateData.templateCategory,
+          JSON.stringify({ projectId: result.projectId, ...templateData }),
+          createdBy
+        );
+      }
+
+      return result;
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get project templates
+   */
+  getProjectTemplates(category = null) {
+    const startTime = performance.now();
+    let sql = `
+      SELECT p.*, 
+             COUNT(bi.id) as item_count,
+             COALESCE(SUM(i.unit_net_price * bi.quantity), 0) as template_value
+      FROM boq_projects p
+      LEFT JOIN boq_items bi ON p.id = bi.project_id
+      LEFT JOIN items i ON bi.item_id = i.id
+      WHERE p.is_template = TRUE
+    `;
+    
+    const params = [];
+    if (category) {
+      sql += ' AND p.template_category = ?';
+      params.push(category);
+    }
+    
+    sql += ' GROUP BY p.id ORDER BY p.name';
+
+    const stmt = this.getPreparedStatement(`getProjectTemplates_${category}`, sql);
+    const result = stmt.all(...params).map(this.mapProjectFromDb.bind(this));
+    const endTime = performance.now();
+    
+    this.logQuery('getProjectTemplates', startTime, endTime, result.length);
+    return result;
+  }
+
+  /**
+   * Update a project template
+   * @param {number} templateId - Template ID to update
+   * @param {Object} templateData - Updated template data
+   * @param {string} updatedBy - User making the update
+   */
+  updateProjectTemplate(templateId, templateData, updatedBy = null) {
+    const startTime = performance.now();
+    
+    try {
+      // Validate template data
+      const validation = this.validateTemplateData(templateData);
+      if (!validation.isValid) {
+        throw new Error(`Template validation failed: ${validation.errors.join(', ')}`);
+      }
+
+      // First verify the template exists and is actually a template
+      const existingTemplate = this.db.prepare(`
+        SELECT id, name FROM boq_projects WHERE id = ? AND is_template = TRUE
+      `).get(templateId);
+      
+      if (!existingTemplate) {
+        throw new Error('Template not found or is not a template');
+      }
+
+      // Update the template project
+      const updateResult = this.updateBOQProject(templateId, {
+        ...templateData,
+        isTemplate: true, // Ensure it remains a template
+        lastModifiedBy: updatedBy
+      });
+
+      if (!updateResult.success) {
+        throw new Error(updateResult.error || 'Failed to update template');
+      }
+
+      // Also update the project_templates table if it exists
+      try {
+        const templateTableStmt = this.db.prepare(`
+          UPDATE project_templates 
+          SET name = ?, description = ?, category = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE template_data LIKE '%"projectId":' || ? || '%'
+        `);
+        
+        templateTableStmt.run(
+          templateData.name,
+          templateData.templateDescription || templateData.description,
+          templateData.templateCategory,
+          templateId
+        );
+      } catch (error) {
+        // project_templates table might not exist or have entries, continue anyway
+        console.warn('Could not update project_templates table:', error.message);
+      }
+
+      // Log the update
+      this.logProjectHistory(templateId, 'template_updated', null, null, null, updatedBy);
+
+      const endTime = performance.now();
+      this.logQuery('updateProjectTemplate', startTime, endTime, 1);
+
+      return {
+        success: true,
+        templateId: templateId,
+        message: 'Template updated successfully'
+      };
+
+    } catch (error) {
+      console.error('Error updating project template:', error);
+      const endTime = performance.now();
+      this.logQuery('updateProjectTemplate', startTime, endTime, 0);
+      
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Delete a project template
+   * @param {number} templateId - Template ID to delete
+   * @param {string} deletedBy - User performing the deletion
+   */
+  deleteProjectTemplate(templateId, deletedBy = null) {
+    const startTime = performance.now();
+    
+    try {
+      // First verify the template exists and is actually a template
+      const existingTemplate = this.db.prepare(`
+        SELECT id, name FROM boq_projects WHERE id = ? AND is_template = TRUE
+      `).get(templateId);
+      
+      if (!existingTemplate) {
+        throw new Error('Template not found or is not a template');
+      }
+
+      // Log the deletion before actually deleting
+      this.logProjectHistory(templateId, 'template_deleted', null, null, null, deletedBy);
+
+      // Delete from project_templates table first (if exists)
+      try {
+        const deleteTemplateTableStmt = this.db.prepare(`
+          DELETE FROM project_templates 
+          WHERE template_data LIKE '%"projectId":' || ? || '%'
+        `);
+        deleteTemplateTableStmt.run(templateId);
+      } catch (error) {
+        // project_templates table might not exist, continue anyway
+        console.warn('Could not delete from project_templates table:', error.message);
+      }
+
+      // Delete the template project (this will cascade to delete BOQ items)
+      const deleteResult = this.deleteBOQProject(templateId);
+
+      if (!deleteResult.success) {
+        throw new Error(deleteResult.error || 'Failed to delete template');
+      }
+
+      const endTime = performance.now();
+      this.logQuery('deleteProjectTemplate', startTime, endTime, 1);
+
+      return {
+        success: true,
+        templateId: templateId,
+        message: 'Template deleted successfully'
+      };
+
+    } catch (error) {
+      console.error('Error deleting project template:', error);
+      const endTime = performance.now();
+      this.logQuery('deleteProjectTemplate', startTime, endTime, 0);
+      
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Get project history
+   */
+  getProjectHistory(projectId, limit = 50) {
+    const startTime = performance.now();
+    const stmt = this.getPreparedStatement('getProjectHistory', `
+      SELECT * FROM project_history 
+      WHERE project_id = ? 
+      ORDER BY changed_at DESC 
+      LIMIT ?
+    `);
+    
+    const result = stmt.all(projectId, limit);
+    const endTime = performance.now();
+    
+    this.logQuery('getProjectHistory', startTime, endTime, result.length);
+    return result;
+  }
+
+  /**
+   * Search projects with advanced filters
+   */
+  searchProjects(filters = {}) {
+    const startTime = performance.now();
+    let sql = `
+      SELECT p.*, 
+             COUNT(bi.id) as item_count,
+             COALESCE(SUM(i.unit_net_price * bi.quantity), 0) as total_value
+      FROM boq_projects p
+      LEFT JOIN boq_items bi ON p.id = bi.project_id
+      LEFT JOIN items i ON bi.item_id = i.id
+      WHERE (p.is_template = FALSE OR p.is_template IS NULL)
+    `;
+    
+    const params = [];
+
+    if (filters.search) {
+      sql += ' AND (p.name LIKE ? OR p.description LIKE ? OR p.client_name LIKE ?)';
+      const searchPattern = `%${filters.search}%`;
+      params.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    if (filters.status) {
+      sql += ' AND p.status = ?';
+      params.push(filters.status);
+    }
+
+    if (filters.clientName) {
+      sql += ' AND p.client_name LIKE ?';
+      params.push(`%${filters.clientName}%`);
+    }
+
+    if (filters.priority) {
+      sql += ' AND p.priority = ?';
+      params.push(filters.priority);
+    }
+
+    if (filters.deadlineFrom) {
+      sql += ' AND p.deadline >= ?';
+      params.push(filters.deadlineFrom);
+    }
+
+    if (filters.deadlineTo) {
+      sql += ' AND p.deadline <= ?';
+      params.push(filters.deadlineTo);
+    }
+
+    if (filters.valueMin) {
+      sql += ' AND p.estimated_value >= ?';
+      params.push(filters.valueMin);
+    }
+
+    if (filters.valueMax) {
+      sql += ' AND p.estimated_value <= ?';
+      params.push(filters.valueMax);
+    }
+
+    sql += ' GROUP BY p.id ORDER BY p.updated_at DESC';
+
+    if (filters.limit) {
+      sql += ' LIMIT ?';
+      params.push(filters.limit);
+    }
+
+    const stmt = this.getPreparedStatement(`searchProjects_${JSON.stringify(filters)}`, sql);
+    const result = stmt.all(...params).map(this.mapProjectFromDb.bind(this));
+    const endTime = performance.now();
+    
+    this.logQuery('searchProjects', startTime, endTime, result.length);
+    return result;
+  }
+
+  /**
+   * Get project statistics
+   */
+  getProjectStatistics() {
+    const startTime = performance.now();
+    const stmt = this.getPreparedStatement('getProjectStatistics', `
+      SELECT 
+        COUNT(*) as total_projects,
+        COUNT(CASE WHEN status = 'draft' THEN 1 END) as draft_count,
+        COUNT(CASE WHEN status = 'active' THEN 1 END) as active_count,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_count,
+        COUNT(CASE WHEN status = 'archived' THEN 1 END) as archived_count,
+        COUNT(CASE WHEN is_template = TRUE THEN 1 END) as template_count,
+        AVG(estimated_value) as avg_project_value,
+        SUM(estimated_value) as total_portfolio_value,
+        COUNT(CASE WHEN deadline < date('now') AND status NOT IN ('completed', 'archived') THEN 1 END) as overdue_count
+      FROM boq_projects
+      WHERE is_template = FALSE OR is_template IS NULL
+    `);
+    
+    const result = stmt.get();
+    const endTime = performance.now();
+    
+    this.logQuery('getProjectStatistics', startTime, endTime, 1);
+    return result;
+  }
+
+  /**
+   * Helper method to map database row to project object
+   */
+  mapProjectFromDb(row) {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      status: row.status || 'draft',
+      clientName: row.client_name,
+      clientContact: row.client_contact,
+      clientEmail: row.client_email,
+      location: row.location,
+      estimatedValue: row.estimated_value || 0,
+      deadline: row.deadline,
+      isTemplate: Boolean(row.is_template),
+      templateCategory: row.template_category,
+      templateDescription: row.template_description,
+      createdFromTemplate: row.created_from_template,
+      tags: row.tags ? JSON.parse(row.tags) : [],
+      projectSettings: row.project_settings ? JSON.parse(row.project_settings) : {},
+      notes: row.notes,
+      priority: row.priority || 1,
+      createdBy: row.created_by,
+      lastModifiedBy: row.last_modified_by,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      // Ensure compatibility with frontend expectations
+      item_count: row.item_count || 0,
+      total_value: Number(row.total_value) || 0,
+      // Also provide camelCase versions for new code
+      itemCount: row.item_count || 0,
+      totalValue: Number(row.total_value) || 0
+    };
+  }
+
+  /**
+   * Helper method to log project history
+   */
+  logProjectHistory(projectId, action, fieldName = null, oldValue = null, newValue = null, changedBy = null) {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO project_history (project_id, action, field_name, old_value, new_value, changed_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      
+      stmt.run(projectId, action, fieldName, oldValue, newValue, changedBy);
+    } catch (error) {
+      console.warn('Failed to log project history:', error.message);
     }
   }
 
   // BOQ Items methods
   getBOQItems(projectId) {
-    const stmt = this.db.prepare(`
+    const startTime = performance.now();
+    const stmt = this.getPreparedStatement('getBOQItems', `
       SELECT bi.*, i.name, i.category, i.manufacturer, i.part_number, 
              i.unit, i.unit_price, i.unit_net_price, i.service_duration,
              i.estimated_lead_time, i.pricing_term, i.discount, i.description,
@@ -684,7 +1472,8 @@ class DatabaseService {
       ORDER BY bi.is_dependency ASC, bi.id ASC
     `);
     
-    return stmt.all(projectId).map(row => ({
+    const rawItems = stmt.all(projectId);
+    const items = rawItems.map(row => ({
       id: row.item_id,
       name: row.name,
       category: row.category,
@@ -703,6 +1492,10 @@ class DatabaseService {
       requiredBy: row.required_by,
       requiredByName: row.required_by_name
     }));
+
+    const endTime = performance.now();
+    this.logQuery('getBOQItems', startTime, endTime, items.length);
+    return items;
   }
 
   saveBOQItems(projectId, boqItems) {
@@ -761,7 +1554,104 @@ class DatabaseService {
     }
   }
 
+  // Performance monitoring methods
+  logQuery(queryName, startTime, endTime, rowCount = 0) {
+    const duration = endTime - startTime;
+    
+    if (!this.queryStats.has(queryName)) {
+      this.queryStats.set(queryName, {
+        count: 0,
+        totalTime: 0,
+        avgTime: 0,
+        minTime: Infinity,
+        maxTime: 0,
+        totalRows: 0
+      });
+    }
+    
+    const stats = this.queryStats.get(queryName);
+    stats.count++;
+    stats.totalTime += duration;
+    stats.avgTime = stats.totalTime / stats.count;
+    stats.minTime = Math.min(stats.minTime, duration);
+    stats.maxTime = Math.max(stats.maxTime, duration);
+    stats.totalRows += rowCount;
+    
+    // Log slow queries (> 100ms)
+    if (duration > 100) {
+      console.warn(`Slow query detected: ${queryName} took ${duration}ms`);
+    }
+  }
+
+  getQueryStats() {
+    const stats = {};
+    for (const [queryName, data] of this.queryStats.entries()) {
+      stats[queryName] = {
+        ...data,
+        avgRowsPerQuery: data.totalRows / data.count || 0
+      };
+    }
+    return stats;
+  }
+
+  resetQueryStats() {
+    this.queryStats.clear();
+  }
+
+  // Prepared statement caching
+  getPreparedStatement(key, sql) {
+    if (!this.preparedStatements.has(key)) {
+      this.preparedStatements.set(key, this.db.prepare(sql));
+    }
+    return this.preparedStatements.get(key);
+  }
+
+  // Database connection optimization
+  optimizeConnection() {
+    // Analyze database for query optimization
+    this.db.exec('ANALYZE');
+    
+    // Update table statistics
+    this.db.exec('PRAGMA optimize');
+    
+    console.log('Database connection optimized');
+  }
+
+  // Performance testing methods
+  runPerformanceTest(testName, testFunction, iterations = 100) {
+    const results = [];
+    
+    for (let i = 0; i < iterations; i++) {
+      const startTime = performance.now();
+      const result = testFunction();
+      const endTime = performance.now();
+      
+      results.push({
+        iteration: i + 1,
+        duration: endTime - startTime,
+        rowCount: Array.isArray(result) ? result.length : result ? 1 : 0
+      });
+    }
+    
+    const totalTime = results.reduce((sum, r) => sum + r.duration, 0);
+    const avgTime = totalTime / iterations;
+    const minTime = Math.min(...results.map(r => r.duration));
+    const maxTime = Math.max(...results.map(r => r.duration));
+    
+    return {
+      testName,
+      iterations,
+      totalTime,
+      avgTime,
+      minTime,
+      maxTime,
+      results
+    };
+  }
+
   close() {
+    // Clear prepared statements cache
+    this.preparedStatements.clear();
     this.db.close();
   }
 }

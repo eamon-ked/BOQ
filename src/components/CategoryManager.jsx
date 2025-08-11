@@ -1,56 +1,205 @@
 import React, { useState } from 'react';
-import { Plus, Edit3, Trash2, X, Save } from 'lucide-react';
+import { Plus, Edit3, Trash2, X, Save, AlertCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useValidatedForm } from '../hooks/useValidatedForm';
+import { simpleCategoryFormSchema } from '../validation/schemas';
+
+// Field Error Display Component
+const FieldError = ({ error, warning, touched }) => {
+  if (!touched) return null;
+  
+  if (error) {
+    return (
+      <div className="flex items-center gap-1 mt-1 text-red-600">
+        <AlertCircle size={12} />
+        <span className="text-xs">{error}</span>
+      </div>
+    );
+  }
+  
+  if (warning) {
+    return (
+      <div className="flex items-center gap-1 mt-1 text-yellow-600">
+        <AlertCircle size={12} />
+        <span className="text-xs">{warning}</span>
+      </div>
+    );
+  }
+  
+  return null;
+};
+
+// Validated Input Component
+const ValidatedInput = ({ 
+  label, 
+  required = false, 
+  type = 'text', 
+  placeholder, 
+  fieldProps, 
+  fieldState,
+  className = '',
+  autoFocus = false,
+  ...props 
+}) => {
+  const { error, warning, touched } = fieldState;
+  const hasError = touched && error;
+  const hasWarning = touched && warning && !error;
+  
+  const inputClassName = `w-full px-3 py-2 border rounded-lg transition-colors duration-200 ${
+    hasError 
+      ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
+      : hasWarning
+      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200'
+      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+  } focus:ring-2 focus:ring-opacity-50 ${className}`;
+
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      <input 
+        name={fieldProps.name}
+        value={fieldProps.value}
+        onChange={fieldProps.onChange}
+        onBlur={fieldProps.onBlur}
+        aria-invalid={fieldProps['aria-invalid']}
+        aria-describedby={fieldProps['aria-describedby']}
+        {...props} 
+        type={type} 
+        className={inputClassName} 
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+      />
+      <FieldError error={error} warning={warning} touched={touched} />
+    </div>
+  );
+};
 
 const CategoryManager = ({ isOpen, onClose, categories, onAddCategory, onUpdateCategory, onDeleteCategory, error, clearError }) => {
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
-  const [newCategoryName, setNewCategoryName] = useState('');
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!newCategoryName.trim()) {
-      alert('Please enter a category name');
-      return;
+  // Default form values - simplified for the form fields actually being used
+  const defaultFormValues = {
+    name: ''
+  };
+
+  // Initialize validated form
+  const {
+    values: formData,
+    errors: formErrors,
+    warnings: formWarnings,
+    touched,
+    isValid: isFormValid,
+    isSubmitting,
+    setValue,
+    setValues,
+    handleSubmit: handleFormSubmit,
+    reset: resetForm,
+    getFieldProps,
+    getFieldState
+  } = useValidatedForm({
+    schema: simpleCategoryFormSchema,
+    defaultValues: defaultFormValues,
+    mode: 'onChange',
+    revalidateMode: 'onChange',
+    sanitizeOnChange: true,
+    sanitizeType: 'category',
+    onSubmit: async (validatedData) => {
+      return await submitForm(validatedData);
     }
+  });
 
-    // Clear any previous errors
-    if (clearError) clearError();
+  const submitForm = async (validatedData) => {
+    try {
+      // Clear any previous errors
+      if (clearError) clearError();
 
-    // Check for duplicate category (except when editing)
-    if (!editingCategory && categories.includes(newCategoryName.trim())) {
-      alert('Category already exists. Please use a unique name.');
-      return;
-    }
+      // Check for duplicate category (except when editing)
+      if (!editingCategory && categories.includes(validatedData.name.trim())) {
+        toast.error('Category already exists. Please use a unique name.', {
+          duration: 4000,
+          icon: '⚠️',
+        });
+        throw new Error('Category already exists');
+      }
 
-    let success = false;
-    if (editingCategory) {
-      success = await onUpdateCategory(editingCategory, newCategoryName.trim());
-    } else {
-      success = await onAddCategory(newCategoryName.trim());
-    }
+      let success = false;
+      if (editingCategory) {
+        success = await onUpdateCategory(editingCategory, validatedData.name.trim());
+        if (success) {
+          toast.success(`Updated category "${validatedData.name.trim()}"`, {
+            duration: 3000,
+            icon: '✏️',
+          });
+        }
+      } else {
+        success = await onAddCategory(validatedData.name.trim());
+        if (success) {
+          toast.success(`Added category "${validatedData.name.trim()}"`, {
+            duration: 3000,
+            icon: '➕',
+          });
+        }
+      }
 
-    if (success) {
-      resetForm();
+      if (success) {
+        resetFormState();
+        return validatedData;
+      } else {
+        throw new Error('Operation failed');
+      }
+    } catch (error) {
+      const errorMessage = `Failed to ${editingCategory ? 'update' : 'add'} category: ${error.message}`;
+      toast.error(errorMessage, {
+        duration: 5000,
+        icon: '❌',
+      });
+      throw new Error(errorMessage);
     }
   };
 
-  const resetForm = () => {
-    setNewCategoryName('');
+  const resetFormState = () => {
+    resetForm(defaultFormValues);
     setIsAddingCategory(false);
     setEditingCategory(null);
   };
 
   const startEdit = (category) => {
-    setNewCategoryName(category);
+    // For simple category manager, we only have the name
+    const categoryForForm = {
+      name: category
+    };
+    
+    setValues(categoryForForm, false); // Don't validate immediately when loading
     setEditingCategory(category);
     setIsAddingCategory(true);
   };
 
-  const handleDelete = (category) => {
-    if (confirm(`Are you sure you want to delete the "${category}" category? This action cannot be undone.`)) {
-      onDeleteCategory(category);
-    }
+  const handleDelete = async (category) => {
+    // Use toast.promise for confirmation-like behavior
+    toast.promise(
+      new Promise((resolve, reject) => {
+        const confirmed = confirm(`Are you sure you want to delete the "${category}" category? This action cannot be undone.`);
+        if (confirmed) {
+          onDeleteCategory(category)
+            .then(() => resolve())
+            .catch(reject);
+        } else {
+          reject(new Error('Cancelled'));
+        }
+      }),
+      {
+        loading: `Deleting category "${category}"...`,
+        success: `Deleted category "${category}"`,
+        error: (err) => err.message === 'Cancelled' ? null : `Failed to delete category: ${err.message}`,
+      },
+      {
+        success: { duration: 3000, icon: '🗑️' },
+        error: { duration: 5000, icon: '❌' },
+      }
+    );
   };
 
   if (!isOpen) return null;
@@ -111,42 +260,55 @@ const CategoryManager = ({ isOpen, onClose, categories, onAddCategory, onUpdateC
                 {editingCategory ? 'Edit Category' : 'Add New Category'}
               </h3>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleFormSubmit} className="space-y-4">
                 {error && (
                   <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                     <p className="text-sm text-red-800">{error}</p>
                   </div>
                 )}
                 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Category Name *</label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full px-3 py-2 border rounded-lg"
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    placeholder="Enter category name"
-                    autoFocus
-                  />
-                </div>
+                <ValidatedInput
+                  label="Category Name"
+                  required
+                  placeholder="Enter category name"
+                  autoFocus
+                  fieldProps={getFieldProps('name')}
+                  fieldState={getFieldState('name')}
+                />
 
                 <div className="flex gap-3">
                   <button
                     type="submit"
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
+                    disabled={!isFormValid || isSubmitting}
+                    className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 ${
+                      !isFormValid || isSubmitting
+                        ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                        : 'bg-green-600 text-white hover:bg-green-700'
+                    }`}
                   >
                     <Save size={16} />
-                    {editingCategory ? 'Update' : 'Add'} Category
+                    {isSubmitting 
+                      ? (editingCategory ? 'Updating...' : 'Adding...') 
+                      : (editingCategory ? 'Update' : 'Add')
+                    } Category
                   </button>
                   <button
                     type="button"
-                    onClick={resetForm}
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                    onClick={resetFormState}
+                    disabled={isSubmitting}
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Cancel
                   </button>
                 </div>
+
+                {/* Validation Status */}
+                {Object.keys(formErrors).length > 0 && (
+                  <div className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle size={12} />
+                    <span>{Object.keys(formErrors).length} validation error(s)</span>
+                  </div>
+                )}
               </form>
 
               {editingCategory && (

@@ -10,23 +10,33 @@
     "server": "node server/server.js",
     "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
     "electron:dev": "npx electron .",
-    "electron:build": "npm run build && npx electron ."
+    "electron:build": "npm run build && npx electron .",
+    "test": "vitest --config vite.config.test.js",
+    "test:run": "vitest run --config vite.config.test.js",
+    "test:performance": "node server/run-performance-tests.js"
   },
   "author": "Nokael",
   "dependencies": {
     "better-sqlite3": "^12.2.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "immer": "^10.1.1",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.263.1",
     "papaparse": "^5.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.5.2",
     "sql.js": "^1.13.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.0.14",
+    "zustand": "^5.0.7"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
@@ -35,9 +45,11 @@
     "electron": "^37.2.4",
     "electron-builder": "^26.0.12",
     "electron-rebuild": "^3.2.9",
+    "jsdom": "^26.1.0",
     "postcss": "^8.4.27",
     "tailwindcss": "^3.3.3",
-    "vite": "^7.0.6"
+    "vite": "^7.0.6",
+    "vitest": "^3.2.4"
   },
   "build": {
     "appId": "com.nokael.boqbuilder",

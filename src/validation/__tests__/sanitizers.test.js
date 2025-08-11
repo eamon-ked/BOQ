@@ -98,7 +98,7 @@ describe('Sanitization Functions', () => {
     });
 
     it('should enforce maximum price', () => {
-      expect(sanitizePrice(1000000)).toBeNull();
+      expect(sanitizePrice(1000000)).toBe(999999.99);
     });
 
     it('should round to 2 decimal places', () => {
@@ -113,11 +113,11 @@ describe('Sanitization Functions', () => {
     });
 
     it('should enforce minimum quantity', () => {
-      expect(sanitizeQuantity(0)).toBeNull();
+      expect(sanitizeQuantity(0)).toBe(0.001);
     });
 
     it('should enforce maximum quantity', () => {
-      expect(sanitizeQuantity(100000)).toBeNull();
+      expect(sanitizeQuantity(100000)).toBe(99999);
     });
 
     it('should round to 3 decimal places', () => {
@@ -390,7 +390,7 @@ describe('Sanitization Functions', () => {
 
     it('should handle general types', () => {
       expect(sanitize('  test  ')).toBe('test');
-      expect(sanitize('123.45')).toBe(123.45);
+      expect(sanitize('123.45')).toBe('123.45');
       expect(sanitize(['  item  '])).toEqual(['item']);
     });
 

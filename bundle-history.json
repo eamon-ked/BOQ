@@ -1,0 +1,202 @@
+{
+  "builds": [
+    {
+      "timestamp": "2025-08-10T08:43:25.018Z",
+      "totalSize": 47565,
+      "totalGzipSize": 7604,
+      "chunkCount": 1,
+      "chunks": [
+        {
+          "name": "index-ssCAajpq.css",
+          "size": 47565,
+          "gzipSize": 7604,
+          "type": "CSS"
+        }
+      ]
+    },
+    {
+      "timestamp": "2025-08-10T08:44:16.062Z",
+      "totalSize": 1722432,
+      "totalGzipSize": 529457,
+      "chunkCount": 14,
+      "chunks": [
+        {
+          "name": "data-processing-1BWE1osp.js",
+          "size": 827973,
+          "gzipSize": 272759,
+          "type": "JavaScript"
+        },
+        {
+          "name": "vendor-utils-DOOVhTIa.js",
+          "size": 401819,
+          "gzipSize": 118279,
+          "type": "JavaScript"
+        },
+        {
+          "name": "vendor-react-BsRuMimi.js",
+          "size": 158705,
+          "gzipSize": 51164,
+          "type": "JavaScript"
+        },
+        {
+          "name": "index-DrJqO7ZD.js",
+          "size": 107212,
+          "gzipSize": 28473,
+          "type": "JavaScript"
+        },
+        {
+          "name": "validation-CHsrMs2y.js",
+          "size": 52041,
+          "gzipSize": 14046,
+          "type": "JavaScript"
+        },
+        {
+          "name": "index-ssCAajpq.css",
+          "size": 47565,
+          "gzipSize": 7604,
+          "type": "CSS"
+        },
+        {
+          "name": "BOQExport-BtbC64nA.js",
+          "size": 36222,
+          "gzipSize": 9502,
+          "type": "JavaScript"
+        },
+        {
+          "name": "ItemManager-BjcWW2d3.js",
+          "size": 22137,
+          "gzipSize": 6602,
+          "type": "JavaScript"
+        },
+        {
+          "name": "BOQProjectManager-BI796CGu.js",
+          "size": 20824,
+          "gzipSize": 5383,
+          "type": "JavaScript"
+        },
+        {
+          "name": "useValidatedForm-BVNhHhem.js",
+          "size": 16479,
+          "gzipSize": 5139,
+          "type": "JavaScript"
+        },
+        {
+          "name": "ProjectTemplate-D0NAVTNw.js",
+          "size": 15653,
+          "gzipSize": 4509,
+          "type": "JavaScript"
+        },
+        {
+          "name": "ui-components-DPRmlGSf.js",
+          "size": 7670,
+          "gzipSize": 2927,
+          "type": "JavaScript"
+        },
+        {
+          "name": "CategoryManager-BZO27yo5.js",
+          "size": 7477,
+          "gzipSize": 2663,
+          "type": "JavaScript"
+        },
+        {
+          "name": "state-management-CkP2wiIF.js",
+          "size": 655,
+          "gzipSize": 407,
+          "type": "JavaScript"
+        }
+      ]
+    },
+    {
+      "timestamp": "2025-08-10T08:59:08.972Z",
+      "totalSize": 1722441,
+      "totalGzipSize": 529428,
+      "chunkCount": 14,
+      "chunks": [
+        {
+          "name": "data-processing-1BWE1osp.js",
+          "size": 827973,
+          "gzipSize": 272759,
+          "type": "JavaScript"
+        },
+        {
+          "name": "vendor-utils-DOOVhTIa.js",
+          "size": 401819,
+          "gzipSize": 118279,
+          "type": "JavaScript"
+        },
+        {
+          "name": "vendor-react-BsRuMimi.js",
+          "size": 158705,
+          "gzipSize": 51164,
+          "type": "JavaScript"
+        },
+        {
+          "name": "index-De6H9Q3m.js",
+          "size": 107212,
+          "gzipSize": 28467,
+          "type": "JavaScript"
+        },
+        {
+          "name": "validation-CHsrMs2y.js",
+          "size": 52041,
+          "gzipSize": 14046,
+          "type": "JavaScript"
+        },
+        {
+          "name": "index-ssCAajpq.css",
+          "size": 47565,
+          "gzipSize": 7604,
+          "type": "CSS"
+        },
+        {
+          "name": "BOQExport-Bpho-yfk.js",
+          "size": 36222,
+          "gzipSize": 9501,
+          "type": "JavaScript"
+        },
+        {
+          "name": "ItemManager-Bd5-5nst.js",
+          "size": 22137,
+          "gzipSize": 6601,
+          "type": "JavaScript"
+        },
+        {
+          "name": "BOQProjectManager-BIXqusLS.js",
+          "size": 20824,
+          "gzipSize": 5382,
+          "type": "JavaScript"
+        },
+        {
+          "name": "useValidatedForm-2yWem2rd.js",
+          "size": 16488,
+          "gzipSize": 5121,
+          "type": "JavaScript"
+        },
+        {
+          "name": "ProjectTemplate-DXCBTiB1.js",
+          "size": 15653,
+          "gzipSize": 4508,
+          "type": "JavaScript"
+        },
+        {
+          "name": "ui-components-DPRmlGSf.js",
+          "size": 7670,
+          "gzipSize": 2927,
+          "type": "JavaScript"
+        },
+        {
+          "name": "CategoryManager-Bo9aqvf-.js",
+          "size": 7477,
+          "gzipSize": 2662,
+          "type": "JavaScript"
+        },
+        {
+          "name": "state-management-CkP2wiIF.js",
+          "size": 655,
+          "gzipSize": 407,
+          "type": "JavaScript"
+        }
+      ]
+    }
+  ]
+}

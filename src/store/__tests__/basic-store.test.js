@@ -21,7 +21,7 @@ describe('Basic Zustand Store', () => {
     const state = useAppStore.getState();
     
     expect(state.ui.modals.itemSelector).toBe(false);
-    expect(state.ui.panels.showItemDB).toBe(true);
+    expect(state.ui.panels.showDatabase).toBe(true);
     expect(state.data.boqItems).toEqual([]);
     expect(state.data.masterDatabase).toEqual([]);
     expect(state.errors).toEqual({});
@@ -33,9 +33,9 @@ describe('Basic Zustand Store', () => {
     // Initial state
     expect(store.ui.modals.itemSelector).toBe(false);
     
-    // Toggle modal
+    // Open modal
     act(() => {
-      store.toggleModal('itemSelector');
+      store.openModal('itemSelector');
     });
     
     const updatedState = useAppStore.getState();
@@ -80,8 +80,8 @@ describe('Basic Zustand Store', () => {
   it('should provide UI actions hook', () => {
     const { result } = renderHook(() => useUIActions());
     
-    expect(typeof result.current.toggleModal).toBe('function');
     expect(typeof result.current.openModal).toBe('function');
+    expect(typeof result.current.closeModal).toBe('function');
     expect(typeof result.current.setLoading).toBe('function');
   });
 

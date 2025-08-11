@@ -24,22 +24,22 @@ const BOQTableRow = memo(({
   }, []);
 
   return (
-    <tr className="hover:bg-blue-50/50 transition-colors group">
-      <td className={`px-2 ${rowHeight} ${textSize} font-medium text-gray-900 border-r border-gray-100`}>
+    <tr className="hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors group">
+      <td className={`px-2 ${rowHeight} ${textSize} font-medium text-gray-900 dark:text-gray-100 border-r border-gray-100 dark:border-gray-700`}>
         {index + 1}
       </td>
-      <td className={`px-3 ${rowHeight} ${textSize} font-mono text-gray-900 border-r border-gray-100`}>
+      <td className={`px-3 ${rowHeight} ${textSize} font-mono text-gray-900 dark:text-gray-100 border-r border-gray-100 dark:border-gray-700`}>
         <div className="font-medium">{item.partNumber || 'N/A'}</div>
         {!isCompact && (
-          <div className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block mt-1">
+          <div className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded-full inline-block mt-1">
             {item.category}
           </div>
         )}
       </td>
-      <td className={`px-3 ${rowHeight} ${textSize} text-gray-900 border-r border-gray-100`}>
+      <td className={`px-3 ${rowHeight} ${textSize} text-gray-900 dark:text-gray-100 border-r border-gray-100 dark:border-gray-700`}>
         <div className="font-medium">{item.name}</div>
         {!isCompact && item.description && (
-          <div className="text-xs text-gray-500 mt-1 truncate">{item.description}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">{item.description}</div>
         )}
       </td>
       <td className={`px-2 ${rowHeight} text-center border-r border-gray-100`}>
@@ -64,7 +64,7 @@ const BOQTableRow = memo(({
         )}
       </td>
       <td className={`px-3 ${rowHeight} ${textSize} text-right text-gray-900 border-r border-gray-100`}>
-        ${item.unitPrice.toFixed(2)}
+        ${(Number(item.unitPrice) || 0).toFixed(2)}
       </td>
       <td className={`px-3 ${rowHeight} text-right border-r border-gray-100`}>
         <span className={`font-bold ${isCompact ? 'text-sm' : 'text-base'} text-green-600`}>
@@ -218,21 +218,21 @@ const BOQTable = memo(() => {
   return (
     <>
       {/* Compact Header with Controls */}
-      <div className="bg-gradient-to-r from-indigo-50 via-blue-50 to-cyan-50 px-4 py-3 border-b border-gray-200">
+      <div className="bg-gradient-to-r from-indigo-50 via-blue-50 to-cyan-50 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-gradient-to-r from-indigo-500 to-blue-600 rounded-lg flex items-center justify-center">
               <Package className="text-white" size={16} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-800">BOQ</h2>
+              <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">BOQ</h2>
               {items.length > 0 && (
-                <div className="flex items-center gap-3 text-xs text-gray-600">
+                <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-400">
                   <span>{mainItems.length} items</span>
                   <span>•</span>
                   <span>{dependencies.length} deps</span>
                   <span>•</span>
-                  <span className="font-semibold text-green-600">${totalExtendedNetPrice.toFixed(2)}</span>
+                  <span className="font-semibold text-green-600 dark:text-green-400">${totalExtendedNetPrice.toFixed(2)}</span>
                 </div>
               )}
             </div>
@@ -267,9 +267,9 @@ const BOQTable = memo(() => {
           <div className="w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Package size={32} className="text-gray-400" />
           </div>
-          <h3 className="text-lg font-bold mb-2 text-gray-700">BOQ Empty</h3>
-          <p className="text-sm text-gray-500 mb-4">Add items to get started</p>
-          <div className="flex items-center justify-center gap-3 text-xs text-gray-400">
+          <h3 className="text-lg font-bold mb-2 text-gray-700 dark:text-gray-300">BOQ Empty</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Add items to get started</p>
+          <div className="flex items-center justify-center gap-3 text-xs text-gray-400 dark:text-gray-500">
             <span>Click database items or use Add Item</span>
           </div>
         </div>
@@ -278,9 +278,9 @@ const BOQTable = memo(() => {
           {/* Compact BOQ Table */}
           <table className="w-full min-w-[900px]">
             {/* Sticky Table Header */}
-            <thead className={`bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200 sticky top-0 z-10 ${isCompact ? 'text-xs' : 'text-xs'}`}>
+            <thead className={`bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-600 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10 ${isCompact ? 'text-xs' : 'text-xs'}`}>
               <tr>
-                <th className={`px-2 ${isCompact ? 'py-2' : 'py-3'} text-left font-semibold text-gray-700 border-r border-gray-200 w-12`}>
+                <th className={`px-2 ${isCompact ? 'py-2' : 'py-3'} text-left font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-gray-700 w-12`}>
                   #
                 </th>
                 <th className={`px-3 ${isCompact ? 'py-2' : 'py-3'} text-left font-semibold text-gray-700 border-r border-gray-200`}>
@@ -370,7 +370,7 @@ const BOQTable = memo(() => {
                     </div>
                   </td>
                   <td className={`px-3 ${rowHeight} ${textSize} text-right text-gray-700 border-r border-gray-100`}>
-                    ${item.unitPrice.toFixed(2)}
+                    ${(Number(item.unitPrice) || 0).toFixed(2)}
                   </td>
                   <td className={`px-3 ${rowHeight} text-right border-r border-gray-100`}>
                     <span className={`font-bold ${isCompact ? 'text-sm' : 'text-base'} text-green-600`}>

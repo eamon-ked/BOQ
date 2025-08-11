@@ -4,22 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import toast from 'react-hot-toast';
 import ItemManager from '../ItemManager';
+import { useAppStore } from '../../store';
 
 // Mock dependencies
 vi.mock('react-hot-toast');
 vi.mock('../../store', () => ({
-  useAppStore: vi.fn(() => ({
-    ui: { modals: { itemEditor: true } },
-    data: { 
-      masterDatabase: [],
-      categories: ['CCTV', 'Access Control', 'Network']
-    },
-    closeModal: vi.fn(),
-    setMasterDatabase: vi.fn(),
-    addMasterItem: vi.fn(),
-    updateMasterItem: vi.fn(),
-    deleteMasterItem: vi.fn()
-  }))
+  useAppStore: vi.fn(),
 }));
 
 describe('ItemManager Form Validation', () => {
@@ -38,8 +28,12 @@ describe('ItemManager Form Validation', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    const { useAppStore } = require('../../store');
-    useAppStore.mockReturnValue(mockStore);
+    useAppStore.mockImplementation((selector) => {
+      if (typeof selector === 'function') {
+        return selector(mockStore);
+      }
+      return mockStore;
+    });
   });
 
   it('should show validation errors for required fields', async () => {

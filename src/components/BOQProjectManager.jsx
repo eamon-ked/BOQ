@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, FolderOpen, Plus, Edit3, Trash2, X, Calendar, DollarSign, Package, AlertCircle, Copy, User, MapPin, Clock, Star, Archive, Download } from 'lucide-react';
+import { Save, FolderOpen, Plus, Edit3, Trash2, X, Calendar, DollarSign, Package, AlertCircle, CheckCircle, Copy, User, MapPin, Clock, Star, Archive, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useValidatedForm } from '../hooks/useValidatedForm';
 import { enhancedProjectFormSchema } from '../validation/schemas';
@@ -41,17 +41,33 @@ const ValidatedInput = ({
   autoFocus = false,
   ...props 
 }) => {
-  const { error, warning, touched } = fieldState;
+  // Safely extract field state properties
+  const error = fieldState?.error || null;
+  const warning = fieldState?.warning || null;
+  const touched = Boolean(fieldState?.touched);
+  
   const hasError = touched && error;
   const hasWarning = touched && warning && !error;
   
   const inputClassName = `w-full px-3 py-2 border rounded-lg transition-colors duration-200 ${
     hasError 
-      ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
+      ? 'border-red-300 focus:border-red-500 focus:ring-red-200 bg-red-50' 
       : hasWarning
-      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200'
+      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200 bg-yellow-50'
+      : touched && !error
+      ? 'border-green-300 focus:border-green-500 focus:ring-green-200 bg-green-50'
       : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
   } focus:ring-2 focus:ring-opacity-50 ${className}`;
+
+  // Safely extract field props and ensure values are strings
+  const safeFieldProps = {
+    name: fieldProps?.name || '',
+    value: fieldProps?.value != null ? String(fieldProps.value) : '',
+    onChange: fieldProps?.onChange || (() => {}),
+    onBlur: fieldProps?.onBlur || (() => {}),
+    'aria-invalid': Boolean(hasError),
+    'aria-describedby': fieldProps?.['aria-describedby'] || ''
+  };
 
   return (
     <div>
@@ -60,12 +76,7 @@ const ValidatedInput = ({
       </label>
       {type === 'textarea' ? (
         <textarea 
-          name={fieldProps.name}
-          value={fieldProps.value}
-          onChange={fieldProps.onChange}
-          onBlur={fieldProps.onBlur}
-          aria-invalid={fieldProps['aria-invalid']}
-          aria-describedby={fieldProps['aria-describedby']}
+          {...safeFieldProps}
           {...props} 
           className={inputClassName} 
           placeholder={placeholder}
@@ -73,12 +84,7 @@ const ValidatedInput = ({
         />
       ) : (
         <input 
-          name={fieldProps.name}
-          value={fieldProps.value}
-          onChange={fieldProps.onChange}
-          onBlur={fieldProps.onBlur}
-          aria-invalid={fieldProps['aria-invalid']}
-          aria-describedby={fieldProps['aria-describedby']}
+          {...safeFieldProps}
           {...props} 
           type={type} 
           className={inputClassName} 
@@ -126,7 +132,7 @@ const BOQProjectManager = ({
     location: '',
     estimatedValue: '',
     deadline: '',
-    priority: 1,
+    priority: '1',
     notes: ''
   };
 
@@ -374,18 +380,18 @@ const BOQProjectManager = ({
   };
 
   const startEdit = (project) => {
-    // Prepare project data for enhanced form
+    // Prepare project data for enhanced form - ensure all values are strings
     const projectForForm = {
-      name: project.name,
+      name: project.name || '',
       description: project.description || '',
       status: project.status || 'draft',
       clientName: project.client_name || '',
       clientContact: project.client_contact || '',
       clientEmail: project.client_email || '',
       location: project.location || '',
-      estimatedValue: project.estimated_value ? project.estimated_value.toString() : '',
+      estimatedValue: project.estimated_value ? String(project.estimated_value) : '',
       deadline: project.deadline || '',
-      priority: project.priority || 1,
+      priority: project.priority ? String(project.priority) : '1',
       notes: project.notes || ''
     };
     
@@ -421,9 +427,10 @@ const BOQProjectManager = ({
   };
 
   const getPriorityIcon = (priority) => {
-    if (priority >= 3) return <Star className="text-red-500" size={12} />;
-    if (priority === 2) return <Star className="text-yellow-500" size={12} />;
-    return <Star className="text-gray-400" size={12} />;
+    const priorityNum = parseInt(priority) || 1;
+    if (priorityNum >= 3) return <Star className="text-red-500 lucide-star" size={12} />;
+    if (priorityNum === 2) return <Star className="text-yellow-500 lucide-star" size={12} />;
+    return <Star className="text-gray-400 lucide-star" size={12} />;
   };
 
   const isOverdue = (deadline, status) => {
@@ -843,12 +850,36 @@ const BOQProjectManager = ({
                   </div>
 
                   {/* Validation Status */}
-                  {Object.keys(formErrors).length > 0 && (
-                    <div className="text-xs text-red-600 flex items-center gap-1">
-                      <AlertCircle size={12} />
-                      <span>{Object.keys(formErrors).length} validation error(s)</span>
+                  <div className="flex items-center justify-between text-xs">
+                    {Object.keys(formErrors).length > 0 ? (
+                      <div className="text-red-600 flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        <span>{Object.keys(formErrors).length} validation error(s)</span>
+                      </div>
+                    ) : isFormValid && formData.name?.trim() ? (
+                      <div className="text-green-600 flex items-center gap-1">
+                        <CheckCircle size={12} />
+                        <span>Form is valid</span>
+                      </div>
+                    ) : (
+                      <div className="text-gray-500 flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        <span>Fill required fields</span>
+                      </div>
+                    )}
+                    
+                    {/* Form progress indicators */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <div className={`w-2 h-2 rounded-full ${formData.name?.trim() ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                        <span className="text-gray-400">Name</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className={`w-2 h-2 rounded-full ${formData.clientName?.trim() ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                        <span className="text-gray-400">Client</span>
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </form>
               </div>
             </div>

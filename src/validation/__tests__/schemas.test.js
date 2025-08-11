@@ -34,28 +34,28 @@ describe('Validation Schemas', () => {
       
       const result = itemSchema.safeParse(invalidItem);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].path).toEqual(['name']);
+      expect(result.error.issues[0].path).toEqual(['name']);
     });
 
     it('should validate price constraints', () => {
       const invalidItem = { ...validItem, unitPrice: -10 };
       const result = itemSchema.safeParse(invalidItem);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('positive');
+      expect(result.error.issues[0].message).toContain('positive');
     });
 
     it('should validate price maximum', () => {
       const invalidItem = { ...validItem, unitPrice: 1000000 };
       const result = itemSchema.safeParse(invalidItem);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('less than 1,000,000');
+      expect(result.error.issues[0].message).toContain('less than 1,000,000');
     });
 
     it('should validate string length constraints', () => {
       const invalidItem = { ...validItem, name: 'a'.repeat(256) };
       const result = itemSchema.safeParse(invalidItem);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('less than 255');
+      expect(result.error.issues[0].message).toContain('less than 255');
     });
 
     it('should validate optional fields', () => {
@@ -93,7 +93,7 @@ describe('Validation Schemas', () => {
       
       const result = itemSchema.safeParse(itemWithManyTags);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('Maximum 10 tags');
+      expect(result.error.issues[0].message).toContain('Maximum 10 tags');
     });
 
     it('should validate dependencies', () => {
@@ -155,14 +155,14 @@ describe('Validation Schemas', () => {
       
       const result = boqItemSchema.safeParse(invalidItem);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].path).toEqual(['quantity']);
+      expect(result.error.issues[0].path).toEqual(['quantity']);
     });
 
     it('should validate quantity constraints', () => {
       const invalidItem = { ...validBOQItem, quantity: 0 };
       const result = boqItemSchema.safeParse(invalidItem);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('positive');
+      expect(result.error.issues[0].message).toContain('positive');
     });
 
     it('should validate custom price', () => {
@@ -191,7 +191,7 @@ describe('Validation Schemas', () => {
     it('should require name field', () => {
       const result = categorySchema.safeParse({});
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].path).toEqual(['name']);
+      expect(result.error.issues[0].path).toEqual(['name']);
     });
 
     it('should validate color format', () => {
@@ -212,7 +212,7 @@ describe('Validation Schemas', () => {
       
       const result = categorySchema.safeParse(categoryWithInvalidColor);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('valid hex color');
+      expect(result.error.issues[0].message).toContain('valid hex color');
     });
   });
 
@@ -232,7 +232,7 @@ describe('Validation Schemas', () => {
     it('should require name field', () => {
       const result = projectSchema.safeParse({});
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].path).toEqual(['name']);
+      expect(result.error.issues[0].path).toEqual(['name']);
     });
 
     it('should validate status enum', () => {
@@ -253,7 +253,7 @@ describe('Validation Schemas', () => {
       
       const result = projectSchema.safeParse(projectWithInvalidStatus);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('draft, active, completed, archived');
+      expect(result.error.issues[0].message).toContain('expected one of');
     });
 
     it('should validate metadata fields', () => {
@@ -314,7 +314,7 @@ describe('Validation Schemas', () => {
       
       const result = searchFiltersSchema.safeParse(filters);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('less than or equal to maximum');
+      expect(result.error.issues[0].message).toContain('less than or equal to maximum');
     });
   });
 
@@ -336,14 +336,14 @@ describe('Validation Schemas', () => {
       
       const result = exportConfigSchema.safeParse(invalidConfig);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].path).toEqual(['format']);
+      expect(result.error.issues[0].path).toEqual(['format']);
     });
 
     it('should require at least one field', () => {
       const invalidConfig = { ...validConfig, fields: [] };
       const result = exportConfigSchema.safeParse(invalidConfig);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('At least one field');
+      expect(result.error.issues[0].message).toContain('At least one field');
     });
   });
 
@@ -363,7 +363,7 @@ describe('Validation Schemas', () => {
       const invalidOperation = { ...validOperation, itemIds: [] };
       const result = bulkOperationSchema.safeParse(invalidOperation);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('At least one item');
+      expect(result.error.issues[0].message).toContain('At least one item');
     });
 
     it('should limit maximum items', () => {
@@ -374,7 +374,7 @@ describe('Validation Schemas', () => {
       
       const result = bulkOperationSchema.safeParse(invalidOperation);
       expect(result.success).toBe(false);
-      expect(result.error.errors[0].message).toContain('Maximum 1000 items');
+      expect(result.error.issues[0].message).toContain('Maximum 1000 items');
     });
   });
 
@@ -403,7 +403,7 @@ describe('Validation Schemas', () => {
         
         const result = updateItemFormSchema.safeParse(formData);
         expect(result.success).toBe(false);
-        expect(result.error.errors[0].path).toEqual(['id']);
+        expect(result.error.issues[0].path).toEqual(['id']);
       });
 
       it('should allow partial updates', () => {

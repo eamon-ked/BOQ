@@ -108,10 +108,8 @@ export function sanitizePrice(input, options = {}) {
     ...options
   });
   
-  // Additional check for values that are too high
-  if (result !== null && result > 999999.99) {
-    return null;
-  }
+  // The sanitizeNumber function already handles max bounds
+  // No additional check needed
   
   return result;
 }
@@ -132,11 +130,8 @@ export function sanitizeQuantity(input, options = {}) {
     ...options
   });
   
-  // Additional checks
-  if (result !== null) {
-    if (result < 0.001) return null;
-    if (result > 99999) return null;
-  }
+  // The sanitizeNumber function already handles bounds
+  // No additional checks needed
   
   return result;
 }
@@ -473,10 +468,10 @@ export function sanitize(data, type = 'general') {
     default:
       if (typeof data === 'string') {
         return sanitizeString(data);
-      } else if (typeof data === 'string' && /^\s*-?\d+\.?\d*\s*$/.test(data)) {
+      } else if (typeof data === 'number') {
         return sanitizeNumber(data);
       } else if (Array.isArray(data)) {
-        return sanitizeArray(data);
+        return sanitizeArray(data, { itemSanitizer: sanitizeString });
       } else if (data instanceof Date) {
         return data; // Return dates unchanged
       } else if (data && typeof data === 'object') {

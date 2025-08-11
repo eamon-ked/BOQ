@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // Base validation schemas
-const positiveNumber = z.number().positive('Must be a positive number');
+const positiveNumber = z.coerce.number().positive('Must be a positive number');
 const nonEmptyString = z.string().min(1, 'This field is required');
 const optionalString = z.string().optional();
 const email = z.string().email('Invalid email format').optional();
@@ -16,11 +16,11 @@ export const itemSchema = z.object({
   partNumber: z.string().max(50, 'Part number must be less than 50 characters').optional(),
   unit: nonEmptyString.max(20, 'Unit must be less than 20 characters'),
   unitPrice: positiveNumber.max(999999.99, 'Unit price must be less than 1,000,000'),
-  unitNetPrice: z.number().min(0, 'Net price cannot be negative').max(999999.99, 'Net price must be less than 1,000,000').optional(),
-  serviceDuration: z.number().int().min(0, 'Service duration cannot be negative').max(365, 'Service duration must be less than 365 days').optional(),
-  estimatedLeadTime: z.number().int().min(0, 'Lead time cannot be negative').max(365, 'Lead time must be less than 365 days').optional(),
+  unitNetPrice: z.coerce.number().min(0, 'Net price cannot be negative').max(999999.99, 'Net price must be less than 1,000,000').optional(),
+  serviceDuration: z.coerce.number().int().min(0, 'Service duration cannot be negative').max(365, 'Service duration must be less than 365 days').optional(),
+  estimatedLeadTime: z.coerce.number().int().min(0, 'Lead time cannot be negative').max(365, 'Lead time must be less than 365 days').optional(),
   pricingTerm: nonEmptyString.max(50, 'Pricing term must be less than 50 characters'),
-  discount: z.number().min(0, 'Discount cannot be negative').max(100, 'Discount cannot exceed 100%').optional(),
+  discount: z.coerce.number().min(0, 'Discount cannot be negative').max(100, 'Discount cannot exceed 100%').optional(),
   description: z.string().max(1000, 'Description must be less than 1000 characters').optional(),
   tags: z.array(z.string().max(50, 'Tag must be less than 50 characters')).max(10, 'Maximum 10 tags allowed').default([]),
   dependencies: z.array(z.object({
@@ -31,7 +31,7 @@ export const itemSchema = z.object({
   })).default([]),
   metadata: z.object({
     isActive: z.boolean().default(true),
-    stockLevel: z.number().int().min(0, 'Stock level cannot be negative').optional(),
+    stockLevel: z.coerce.number().int().min(0, 'Stock level cannot be negative').optional(),
     lastPriceUpdate: z.date().optional(),
     supplierInfo: z.object({
       name: z.string().max(100, 'Supplier name must be less than 100 characters').optional(),
@@ -49,9 +49,9 @@ export const boqItemSchema = itemSchema.extend({
   quantity: positiveNumber.max(9999, 'Quantity must be less than 10,000'),
   isDependency: z.boolean().default(false),
   requiredBy: z.string().optional(),
-  customPrice: z.number().min(0, 'Custom price cannot be negative').max(999999.99, 'Custom price must be less than 1,000,000').optional(),
+  customPrice: z.coerce.number().min(0, 'Custom price cannot be negative').max(999999.99, 'Custom price must be less than 1,000,000').optional(),
   notes: z.string().max(500, 'Notes must be less than 500 characters').optional(),
-  lineTotal: z.number().min(0, 'Line total cannot be negative').optional() // Calculated field
+  lineTotal: z.coerce.number().min(0, 'Line total cannot be negative').optional() // Calculated field
 });
 
 // Category validation schema
@@ -62,7 +62,7 @@ export const categorySchema = z.object({
   parentCategory: z.string().max(100, 'Parent category must be less than 100 characters').optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Color must be a valid hex color').optional(),
   isActive: z.boolean().default(true),
-  sortOrder: z.number().int().min(0, 'Sort order cannot be negative').default(0),
+  sortOrder: z.coerce.number().int().min(0, 'Sort order cannot be negative').default(0),
   createdAt: z.date().optional(),
   updatedAt: z.date().optional()
 });
@@ -78,18 +78,25 @@ export const projectSchema = z.object({
   metadata: z.object({
     client: z.string().max(255, 'Client name must be less than 255 characters').optional(),
     location: z.string().max(255, 'Location must be less than 255 characters').optional(),
-    estimatedValue: z.number().min(0, 'Estimated value cannot be negative').max(99999999.99, 'Estimated value must be less than 100,000,000').optional(),
+    estimatedValue: z.coerce.number().min(0, 'Estimated value cannot be negative').max(99999999.99, 'Estimated value must be less than 100,000,000').optional(),
     deadline: z.date().optional(),
     tags: z.array(z.string().max(50, 'Tag must be less than 50 characters')).max(20, 'Maximum 20 tags allowed').default([])
   }).default({}),
   settings: z.object({
     currency: z.string().max(10, 'Currency must be less than 10 characters').default('USD'),
-    taxRate: z.number().min(0, 'Tax rate cannot be negative').max(100, 'Tax rate cannot exceed 100%').default(0),
-    discountRate: z.number().min(0, 'Discount rate cannot be negative').max(100, 'Discount rate cannot exceed 100%').default(0),
+    taxRate: z.coerce.number().min(0, 'Tax rate cannot be negative').max(100, 'Tax rate cannot exceed 100%').default(0),
+    discountRate: z.coerce.number().min(0, 'Discount rate cannot be negative').max(100, 'Discount rate cannot exceed 100%').default(0),
     showPrices: z.boolean().default(true),
     showDescriptions: z.boolean().default(true),
     autoCalculateDependencies: z.boolean().default(true)
-  }).default({}),
+  }).default({
+    currency: 'USD',
+    taxRate: 0,
+    discountRate: 0,
+    showPrices: true,
+    showDescriptions: true,
+    autoCalculateDependencies: true
+  }),
   createdAt: z.date().optional(),
   updatedAt: z.date().optional()
 });
@@ -99,8 +106,8 @@ export const searchFiltersSchema = z.object({
   search: z.string().max(255, 'Search term must be less than 255 characters').default(''),
   category: z.string().max(100, 'Category must be less than 100 characters').default(''),
   priceRange: z.tuple([
-    z.number().min(0, 'Minimum price cannot be negative'),
-    z.number().min(0, 'Maximum price cannot be negative')
+    z.coerce.number().min(0, 'Minimum price cannot be negative'),
+    z.coerce.number().min(0, 'Maximum price cannot be negative')
   ]).refine(([min, max]) => min <= max, 'Minimum price must be less than or equal to maximum price').default([0, 999999]),
   manufacturer: z.string().max(100, 'Manufacturer must be less than 100 characters').default(''),
   inStock: z.boolean().optional(),
@@ -145,7 +152,7 @@ export const templateSchema = z.object({
   templateDescription: z.string().max(2000, 'Template description must be less than 2000 characters').optional(),
   templateCategory: z.string().max(100, 'Template category must be less than 100 characters').optional(),
   isPublic: z.boolean().default(false),
-  usageCount: z.number().int().min(0, 'Usage count cannot be negative').default(0),
+  usageCount: z.coerce.number().int().min(0, 'Usage count cannot be negative').default(0),
   templateData: z.record(z.any()).optional(), // JSON data for template structure
   createdBy: z.string().optional(),
   createdAt: z.date().optional(),
@@ -179,7 +186,7 @@ export const enhancedProjectFormSchema = z.object({
     const date = new Date(val);
     return !isNaN(date.getTime());
   }, 'Invalid date format').optional(),
-  priority: z.number().int().min(1, 'Priority must be at least 1').max(3, 'Priority must be at most 3').default(1),
+  priority: z.coerce.number().int().min(1, 'Priority must be at least 1').max(3, 'Priority must be at most 3').default(1),
   notes: z.string().max(2000, 'Notes must be less than 2000 characters').optional()
 });
 

@@ -35,6 +35,7 @@ export const useAppStore = create((set, get) => ({
       search: '',
       category: '',
     },
+    selectedItems: new Set(),
   },
   errors: {},
 
@@ -166,6 +167,143 @@ export const useAppStore = create((set, get) => ({
         };
       } catch (error) {
         toast.error(`Failed to add item: ${error.message}`, {
+          duration: 5000,
+          icon: '❌',
+        });
+        return state;
+      }
+    }),
+
+  // Bulk Operations
+  addMultipleBOQItems: (items) =>
+    set((state) => {
+      try {
+        let updatedBOQItems = [...state.data.boqItems];
+        let totalDependencies = 0;
+        
+        items.forEach(({ item, quantity = 1 }) => {
+          updatedBOQItems = addItemToBOQ(
+            updatedBOQItems,
+            item,
+            quantity,
+            state.data.masterDatabase
+          );
+          totalDependencies += item.dependencies?.length || 0;
+        });
+
+        const message = totalDependencies > 0 
+          ? `Added ${items.length} items with ${totalDependencies} dependencies to BOQ`
+          : `Added ${items.length} items to BOQ`;
+        
+        toast.success(message, {
+          duration: 4000,
+          icon: '✅',
+        });
+
+        return {
+          data: {
+            ...state.data,
+            boqItems: updatedBOQItems,
+          },
+          ui: {
+            ...state.ui,
+            panels: {
+              ...state.ui.panels,
+              showSummary: true,
+            },
+          },
+        };
+      } catch (error) {
+        toast.error(`Failed to add items: ${error.message}`, {
+          duration: 5000,
+          icon: '❌',
+        });
+        return state;
+      }
+    }),
+
+  updateMultipleMasterItems: (updates) =>
+    set((state) => {
+      try {
+        let updatedDatabase = [...state.data.masterDatabase];
+        
+        updates.forEach(({ itemId, changes }) => {
+          const index = updatedDatabase.findIndex(item => item.id === itemId);
+          if (index !== -1) {
+            updatedDatabase[index] = { ...updatedDatabase[index], ...changes };
+          }
+        });
+
+        toast.success(`Updated ${updates.length} items in database`, {
+          duration: 3000,
+          icon: '✏️',
+        });
+
+        return {
+          data: {
+            ...state.data,
+            masterDatabase: updatedDatabase,
+          },
+        };
+      } catch (error) {
+        toast.error(`Failed to update items: ${error.message}`, {
+          duration: 5000,
+          icon: '❌',
+        });
+        return state;
+      }
+    }),
+
+  deleteMultipleMasterItems: (itemIds) =>
+    set((state) => {
+      try {
+        const itemsToDelete = state.data.masterDatabase.filter(item => itemIds.includes(item.id));
+        const itemsInBOQ = state.data.boqItems.filter(item => itemIds.includes(item.id));
+        
+        toast.success(`Deleted ${itemIds.length} items from database${itemsInBOQ.length > 0 ? ` and ${itemsInBOQ.length} from BOQ` : ''}`, {
+          duration: 4000,
+          icon: '🗑️',
+        });
+
+        return {
+          data: {
+            ...state.data,
+            masterDatabase: state.data.masterDatabase.filter(item => !itemIds.includes(item.id)),
+            boqItems: state.data.boqItems.filter(item => !itemIds.includes(item.id)),
+          },
+        };
+      } catch (error) {
+        toast.error(`Failed to delete items: ${error.message}`, {
+          duration: 5000,
+          icon: '❌',
+        });
+        return state;
+      }
+    }),
+
+  duplicateMultipleMasterItems: (itemIds) =>
+    set((state) => {
+      try {
+        const itemsToDuplicate = state.data.masterDatabase.filter(item => itemIds.includes(item.id));
+        const duplicatedItems = itemsToDuplicate.map(item => ({
+          ...item,
+          id: `${item.id}_copy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name: `${item.name} (Copy)`,
+        }));
+
+        toast.success(`Duplicated ${itemIds.length} items in database`, {
+          duration: 3000,
+          icon: '📋',
+        });
+
+        return {
+          data: {
+            ...state.data,
+            masterDatabase: [...state.data.masterDatabase, ...duplicatedItems],
+          },
+        };
+      } catch (error) {
+        toast.error(`Failed to duplicate items: ${error.message}`, {
           duration: 5000,
           icon: '❌',
         });
@@ -577,6 +715,11 @@ export const useDataActions = () => useAppStore((state) => ({
   addMasterItem: state.addMasterItem,
   updateMasterItem: state.updateMasterItem,
   deleteMasterItem: state.deleteMasterItem,
+  // Bulk operations
+  addMultipleBOQItems: state.addMultipleBOQItems,
+  updateMultipleMasterItems: state.updateMultipleMasterItems,
+  deleteMultipleMasterItems: state.deleteMultipleMasterItems,
+  duplicateMultipleMasterItems: state.duplicateMultipleMasterItems,
 }));
 
 export const useErrorActions = () => useAppStore((state) => ({

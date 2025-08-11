@@ -23,8 +23,8 @@ export * from './validators.js';
 // Export all sanitizers
 export * from './sanitizers.js';
 
-// Re-export commonly used functions for convenience
-export {
+// Import functions for internal use
+import {
   validateItem,
   validateBOQItem,
   validateCategory,
@@ -44,7 +44,7 @@ export {
   customValidationRules
 } from './validators.js';
 
-export {
+import {
   sanitize,
   sanitizeString,
   sanitizeNumber,
@@ -62,6 +62,43 @@ export {
   encodeHtmlEntities,
   escapeSqlString
 } from './sanitizers.js';
+
+// Re-export commonly used functions for convenience
+export {
+  validateItem,
+  validateBOQItem,
+  validateCategory,
+  validateProject,
+  validateSearchFilters,
+  validateExportConfig,
+  validateBulkOperation,
+  validateCreateItemForm,
+  validateUpdateItemForm,
+  validateCreateProjectForm,
+  validateUpdateProjectForm,
+  validateCreateCategoryForm,
+  validateUpdateCategoryForm,
+  validateBatch,
+  validateRequiredFields,
+  formatValidationErrors,
+  customValidationRules,
+  sanitize,
+  sanitizeString,
+  sanitizeNumber,
+  sanitizePrice,
+  sanitizeQuantity,
+  sanitizeEmail,
+  sanitizeUrl,
+  sanitizeArray,
+  sanitizeTags,
+  sanitizeDate,
+  sanitizeObject,
+  sanitizeItemData,
+  sanitizeProjectData,
+  sanitizeCategoryData,
+  encodeHtmlEntities,
+  escapeSqlString
+};
 
 /**
  * Validation pipeline that combines sanitization and validation

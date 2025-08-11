@@ -72,7 +72,7 @@ const DependencyWarnings = ({ boqItems, onAddDependency }) => {
                   Suggested quantity: {dep.totalQuantity} {dep.item.unit}
                 </p>
                 <p className="text-sm text-orange-600">
-                  ${(dep.totalQuantity * dep.item.unitPrice).toFixed(2)} total
+                  ${(dep.totalQuantity * (Number(dep.item.unitPrice) || 0)).toFixed(2)} total
                 </p>
               </div>
               <button

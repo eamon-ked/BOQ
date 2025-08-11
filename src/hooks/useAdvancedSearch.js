@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { optimizedSearch } from '../utils/optimizedSearch.js';
 
 /**
  * Advanced search hook with debounced input, multi-field search, and filtering
+ * Enhanced with caching, indexing, and performance monitoring
  * @param {Array} items - Array of items to search through
  * @param {Object} options - Search configuration options
  * @returns {Object} Search state and methods
@@ -13,7 +15,10 @@ export const useAdvancedSearch = (items = [], options = {}) => {
     searchFields = ['name', 'description', 'manufacturer'],
     caseSensitive = false,
     enableHighlighting = true,
-    enableRanking = true
+    enableRanking = true,
+    enableCache = true,
+    enableIndex = true,
+    enableAnalytics = true
   } = options;
 
   // Search state

@@ -171,17 +171,18 @@ class DatabaseService {
   }
 
   seedInitialData() {
-    // Check if data already exists
+    // For distribution builds, we want to start with a clean database
+    // Only seed basic categories, no sample items
     const categoryCount = this.db.prepare('SELECT COUNT(*) as count FROM categories').get();
     if (categoryCount.count > 0) {
       return; // Data already seeded
     }
 
-    // Insert initial categories
+    // Insert only basic categories for a clean start
     const insertCategory = this.db.prepare('INSERT INTO categories (name) VALUES (?)');
     const categories = [
       'CCTV', 'Access Control', 'PAVA', 'Cabling', 'Network', 
-      'Power', 'Storage', 'Accessories'
+      'Power', 'Storage', 'Accessories', 'General'
     ];
 
     const insertCategories = this.db.transaction((categories) => {
@@ -192,11 +193,9 @@ class DatabaseService {
 
     insertCategories(categories);
 
-    // Insert initial items
-    const insertItem = this.db.prepare(`
-      INSERT INTO items (id, name, category, manufacturer, part_number, unit, unit_price, unit_net_price, service_duration, estimated_lead_time, pricing_term, discount, description) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    console.log('Initial categories seeded for clean installation');
+    
+    // No sample items for distribution - users start with empty database
 
     const items = [
       {

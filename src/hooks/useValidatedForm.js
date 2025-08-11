@@ -60,7 +60,7 @@ export const useValidatedForm = (options = {}) => {
 
     try {
       const result = validateData(schema, formData);
-      
+
       // If validating a specific field, only return that field's validation
       if (fieldName) {
         return {
@@ -96,9 +96,9 @@ export const useValidatedForm = (options = {}) => {
 
     validationTimeoutRef.current = setTimeout(() => {
       setIsValidating(true);
-      
+
       const result = validateForm(formData, fieldName);
-      
+
       if (fieldName) {
         // Update only the specific field's error
         setErrors(prev => ({
@@ -132,14 +132,25 @@ export const useValidatedForm = (options = {}) => {
    * @param {boolean} shouldValidate - Whether to validate after setting
    */
   const setValue = useCallback((fieldName, value, shouldValidate = true) => {
-    // Sanitize value if enabled
+    // For individual field updates, use general sanitization for strings
     let sanitizedValue = value;
     if (sanitizeOnChange && typeof value === 'string') {
-      sanitizedValue = sanitize(value, sanitizeType);
+      sanitizedValue = sanitize(value, 'general');
+    }
+
+    // Prevent objects from being set as field values (except for arrays and specific object fields)
+    if (typeof sanitizedValue === 'object' && sanitizedValue !== null && !Array.isArray(sanitizedValue)) {
+      // Allow objects only for specific fields like metadata
+      if (!['metadata', 'tags', 'dependencies'].includes(fieldName)) {
+        const isEmptyObject = Object.keys(sanitizedValue).length === 0;
+        console.warn(`Attempted to set ${isEmptyObject ? 'empty ' : ''}object as value for field ${fieldName}, converting to empty string:`, sanitizedValue);
+        sanitizedValue = '';
+      }
     }
 
     // Update values
     const newValues = { ...values, [fieldName]: sanitizedValue };
+
     setValuesState(newValues);
 
     // Mark field as touched
@@ -158,7 +169,7 @@ export const useValidatedForm = (options = {}) => {
     if (shouldValidate && (mode === 'onChange' || (revalidateMode === 'onChange' && touched[fieldName]))) {
       debouncedValidate(newValues, fieldName);
     }
-  }, [values, errors, touched, sanitizeOnChange, sanitizeType, mode, revalidateMode, debouncedValidate]);
+  }, [values, errors, touched, sanitizeOnChange, mode, revalidateMode, debouncedValidate]);
 
   /**
    * Sets multiple field values at once
@@ -166,31 +177,71 @@ export const useValidatedForm = (options = {}) => {
    * @param {boolean} shouldValidate - Whether to validate after setting
    */
   const setValues = useCallback((newValues, shouldValidate = true) => {
+    console.log('setValues - Input newValues:', newValues);
+
     // Sanitize values if enabled
     let sanitizedValues = newValues;
     if (sanitizeOnChange) {
+      console.log('setValues - Sanitizing values, sanitizeType:', sanitizeType);
       sanitizedValues = Object.keys(newValues).reduce((acc, key) => {
         const value = newValues[key];
-        acc[key] = typeof value === 'string' ? sanitize(value, sanitizeType) : value;
+        console.log(`setValues - Sanitizing ${key}:`, value, 'type:', typeof value);
+
+        // For individual field updates, use general sanitization for strings
+        if (typeof value === 'string') {
+          acc[key] = sanitize(value, 'general');
+        } else {
+          acc[key] = value;
+        }
+
+        console.log(`setValues - After sanitize ${key}:`, acc[key], 'type:', typeof acc[key]);
         return acc;
       }, {});
     }
 
+    console.log('setValues - After sanitization:', sanitizedValues);
+
+    // Prevent objects from being set as field values (except for specific fields)
+    const processedValues = Object.keys(sanitizedValues).reduce((acc, key) => {
+      const value = sanitizedValues[key];
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        // Allow objects only for specific fields like metadata
+        if (!['metadata', 'tags', 'dependencies'].includes(key)) {
+          // Check if it's an empty object
+          if (Object.keys(value).length === 0) {
+            console.warn(`Attempted to set empty object as value for field ${key}, converting to empty string:`, value);
+            acc[key] = '';
+          } else {
+            console.warn(`Attempted to set object as value for field ${key}, converting to empty string:`, value);
+            acc[key] = '';
+          }
+        } else {
+          acc[key] = value;
+        }
+      } else {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+
+    console.log('setValues - After processing:', processedValues);
+
     // Update values
-    const updatedValues = { ...values, ...sanitizedValues };
+    const updatedValues = { ...values, ...processedValues };
+
     setValuesState(updatedValues);
 
     // Mark fields as touched
-    const touchedFields = Object.keys(sanitizedValues).reduce((acc, key) => {
+    const touchedFields = Object.keys(processedValues).reduce((acc, key) => {
       acc[key] = true;
       return acc;
     }, {});
     setTouched(prev => ({ ...prev, ...touchedFields }));
 
     // Clear errors for updated fields
-    const fieldsToUpdate = Object.keys(sanitizedValues);
+    const fieldsToUpdate = Object.keys(processedValues);
     const hasErrorsToUpdate = fieldsToUpdate.some(field => errors[field]);
-    
+
     if (hasErrorsToUpdate) {
       setErrors(prev => {
         const newErrors = { ...prev };
@@ -265,7 +316,7 @@ export const useValidatedForm = (options = {}) => {
     setTouched({});
     setIsSubmitting(false);
     setSubmitCount(0);
-    
+
     if (newDefaultValues) {
       initialValues.current = newDefaultValues;
     }
@@ -287,11 +338,11 @@ export const useValidatedForm = (options = {}) => {
     try {
       // Validate the entire form
       const validationResult = validateForm(values);
-      
+
       if (!validationResult.isValid) {
         setErrors(validationResult.errors);
         setWarnings(validationResult.warnings);
-        
+
         // Focus first error field if possible
         const firstErrorField = Object.keys(validationResult.errors)[0];
         if (firstErrorField && typeof document !== 'undefined') {
@@ -300,7 +351,7 @@ export const useValidatedForm = (options = {}) => {
             errorElement.focus();
           }
         }
-        
+
         throw new Error('Form validation failed');
       }
 
@@ -340,23 +391,41 @@ export const useValidatedForm = (options = {}) => {
    * @returns {Object} Props object for the field
    */
   const getFieldProps = useCallback((fieldName, options = {}) => {
-    const { 
+    const {
       type = 'text',
       validateOnChange = mode === 'onChange',
       validateOnBlur = mode === 'onBlur' || revalidateMode === 'onBlur'
     } = options;
 
+    // Get the raw value
+    const rawValue = values[fieldName];
+
+    // Convert value to appropriate type for input
+    let inputValue = '';
+    if (rawValue !== null && rawValue !== undefined) {
+      if (type === 'checkbox') {
+        inputValue = Boolean(rawValue);
+      } else if (type === 'number') {
+        // For number inputs, ensure we have a valid number or empty string
+        const numValue = Number(rawValue);
+        inputValue = isNaN(numValue) || numValue === 0 ? '' : String(numValue);
+      } else if (typeof rawValue === 'object') {
+        // If it's an object, don't display it - return empty string
+        console.warn(`Field ${fieldName} contains object value, converting to empty string:`, rawValue);
+        inputValue = '';
+      } else {
+        inputValue = String(rawValue);
+      }
+    }
+
     return {
       name: fieldName,
-      value: values[fieldName] || '',
+      value: inputValue,
       onChange: (event) => {
         const value = type === 'checkbox' ? event.target.checked : event.target.value;
         setValue(fieldName, value, validateOnChange);
       },
       onBlur: validateOnBlur ? () => handleBlur(fieldName) : undefined,
-      error: errors[fieldName],
-      warning: warnings[fieldName],
-      touched: touched[fieldName],
       'aria-invalid': !!errors[fieldName],
       'aria-describedby': errors[fieldName] ? `${fieldName}-error` : undefined
     };
@@ -403,13 +472,13 @@ export const useValidatedForm = (options = {}) => {
     isSubmitting,
     isValidating,
     submitCount,
-    
+
     // Computed state
     isDirty,
     isValid,
     hasErrors,
     hasWarnings,
-    
+
     // Form methods
     setValue,
     setValues,
@@ -419,14 +488,14 @@ export const useValidatedForm = (options = {}) => {
     reset,
     handleSubmit,
     handleBlur,
-    
+
     // Validation methods
     validateForm,
-    
+
     // Helper methods
     getFieldProps,
     getFieldState,
-    
+
     // Validation result
     lastValidation: lastValidationRef.current
   };
@@ -465,7 +534,7 @@ export const useValidatedFormArray = (options = {}) => {
 
     const newItem = item || createDefaultItem();
     const insertIndex = index !== null ? index : items.length;
-    
+
     setItems(prev => {
       const newItems = [...prev];
       newItems.splice(insertIndex, 0, newItem);
@@ -479,12 +548,12 @@ export const useValidatedFormArray = (options = {}) => {
    */
   const removeItem = useCallback((index) => {
     setItems(prev => prev.filter((_, i) => i !== index));
-    
+
     // Clear errors for removed item
     setErrors(prev => {
       const newErrors = { ...prev };
       delete newErrors[index];
-      
+
       // Shift errors for items after the removed index
       const shiftedErrors = {};
       Object.keys(newErrors).forEach(key => {
@@ -495,7 +564,7 @@ export const useValidatedFormArray = (options = {}) => {
           shiftedErrors[key] = newErrors[key];
         }
       });
-      
+
       return shiftedErrors;
     });
   }, []);
@@ -529,7 +598,7 @@ export const useValidatedFormArray = (options = {}) => {
    */
   const moveItem = useCallback((fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
-    
+
     setItems(prev => {
       const newItems = [...prev];
       const [movedItem] = newItems.splice(fromIndex, 1);

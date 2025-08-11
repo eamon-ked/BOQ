@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
-import { Plus, Edit3, Trash2, X, Save, AlertCircle } from 'lucide-react';
+import { Plus, Edit3, Trash2, X, Save, AlertCircle, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useValidatedForm } from '../hooks/useValidatedForm';
 import { simpleCategoryFormSchema } from '../validation/schemas';
 
 // Field Error Display Component
-const FieldError = ({ error, warning, touched }) => {
+const FieldError = ({ error, warning, touched, fieldName }) => {
   if (!touched) return null;
+  
+  const errorId = fieldName ? `field-${fieldName}-error` : undefined;
   
   if (error) {
     return (
-      <div className="flex items-center gap-1 mt-1 text-red-600">
+      <div id={errorId} className="flex items-center gap-1 mt-1 text-red-600" role="alert">
         <AlertCircle size={12} />
         <span className="text-xs">{error}</span>
       </div>
@@ -19,7 +21,7 @@ const FieldError = ({ error, warning, touched }) => {
   
   if (warning) {
     return (
-      <div className="flex items-center gap-1 mt-1 text-yellow-600">
+      <div id={errorId} className="flex items-center gap-1 mt-1 text-yellow-600" role="alert">
         <AlertCircle size={12} />
         <span className="text-xs">{warning}</span>
       </div>
@@ -45,33 +47,40 @@ const ValidatedInput = ({
   const hasError = touched && error;
   const hasWarning = touched && warning && !error;
   
+  // Generate unique ID for accessibility
+  const fieldId = `field-${fieldProps.name}`;
+  const errorId = hasError ? `${fieldId}-error` : undefined;
+  
   const inputClassName = `w-full px-3 py-2 border rounded-lg transition-colors duration-200 ${
     hasError 
-      ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
+      ? 'border-red-300 focus:border-red-500 focus:ring-red-200 bg-red-50' 
       : hasWarning
-      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200'
+      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200 bg-yellow-50'
+      : touched && !error
+      ? 'border-green-300 focus:border-green-500 focus:ring-green-200 bg-green-50'
       : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
   } focus:ring-2 focus:ring-opacity-50 ${className}`;
 
   return (
     <div>
-      <label className="block text-sm font-medium mb-1">
+      <label htmlFor={fieldId} className="block text-sm font-medium mb-1">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       <input 
+        id={fieldId}
         name={fieldProps.name}
         value={fieldProps.value}
         onChange={fieldProps.onChange}
         onBlur={fieldProps.onBlur}
-        aria-invalid={fieldProps['aria-invalid']}
-        aria-describedby={fieldProps['aria-describedby']}
+        aria-invalid={hasError}
+        aria-describedby={errorId}
         {...props} 
         type={type} 
         className={inputClassName} 
         placeholder={placeholder}
         autoFocus={autoFocus}
       />
-      <FieldError error={error} warning={warning} touched={touched} />
+      <FieldError error={error} warning={warning} touched={touched} fieldName={fieldProps.name} />
     </div>
   );
 };
@@ -285,11 +294,12 @@ const CategoryManager = ({ isOpen, onClose, categories, onAddCategory, onUpdateC
                         ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
                         : 'bg-green-600 text-white hover:bg-green-700'
                     }`}
+                    aria-label={`${editingCategory ? 'Update' : 'Save'} category form`}
                   >
                     <Save size={16} />
                     {isSubmitting 
                       ? (editingCategory ? 'Updating...' : 'Adding...') 
-                      : (editingCategory ? 'Update' : 'Add')
+                      : (editingCategory ? 'Update' : 'Save')
                     } Category
                   </button>
                   <button
@@ -303,12 +313,30 @@ const CategoryManager = ({ isOpen, onClose, categories, onAddCategory, onUpdateC
                 </div>
 
                 {/* Validation Status */}
-                {Object.keys(formErrors).length > 0 && (
-                  <div className="text-xs text-red-600 flex items-center gap-1">
-                    <AlertCircle size={12} />
-                    <span>{Object.keys(formErrors).length} validation error(s)</span>
+                <div className="flex items-center justify-between text-xs">
+                  {Object.keys(formErrors).length > 0 ? (
+                    <div className="text-red-600 flex items-center gap-1">
+                      <AlertCircle size={12} />
+                      <span>{Object.keys(formErrors).length} validation error(s)</span>
+                    </div>
+                  ) : isFormValid && formData.name?.trim() ? (
+                    <div className="text-green-600 flex items-center gap-1">
+                      <CheckCircle size={12} />
+                      <span>Form is valid</span>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500 flex items-center gap-1">
+                      <AlertCircle size={12} />
+                      <span>Fill required fields</span>
+                    </div>
+                  )}
+                  
+                  {/* Form progress indicator */}
+                  <div className="flex items-center gap-1">
+                    <div className={`w-2 h-2 rounded-full ${formData.name?.trim() ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                    <span className="text-gray-400">Name</span>
                   </div>
-                )}
+                </div>
               </form>
 
               {editingCategory && (

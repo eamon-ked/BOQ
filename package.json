@@ -6,14 +6,24 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:analyze": "vite build && node scripts/analyze-bundle.js",
+    "build:production": "NODE_ENV=production vite build --mode production",
+    "build:profile": "vite build --mode production && node scripts/analyze-bundle.js",
     "preview": "vite preview",
     "server": "node server/server.js",
     "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
     "electron:dev": "npx electron .",
     "electron:build": "npm run build && npx electron .",
+    "dist": "node scripts/build-electron.js",
+    "dist:win": "npm run build && npx electron-builder --win",
+    "dist:portable": "npm run build && npx electron-builder --win portable",
+    "dist:clean": "npm run build && npx electron-builder --win --publish=never",
     "test": "vitest --config vite.config.test.js",
     "test:run": "vitest run --config vite.config.test.js",
-    "test:performance": "node server/run-performance-tests.js"
+    "test:performance": "vitest run --config vite.config.test.js src/test/performance.test.jsx",
+    "test:performance-server": "node server/run-performance-tests.js",
+    "analyze:bundle": "node scripts/analyze-bundle.js",
+    "monitor:performance": "node -e \"console.log('Performance monitoring available in browser console: window.performanceMonitor')\""
   },
   "author": "Nokael",
   "dependencies": {
@@ -25,9 +35,12 @@
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.263.1",
     "papaparse": "^5.5.3",
+    "prop-types": "^15.8.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.5.2",
+    "react-window": "^1.8.11",
+    "react-window-infinite-loader": "^1.0.10",
     "sql.js": "^1.13.0",
     "xlsx": "^0.18.5",
     "zod": "^4.0.14",
@@ -53,22 +66,53 @@
   },
   "build": {
     "appId": "com.nokael.boqbuilder",
-    "productName": "BOQ Generator",
+    "productName": "BOQ Builder",
+    "copyright": "Copyright © 2024 Nokael",
     "files": [
       "dist/**/*",
       "main.js",
       "server/**/*",
       "node_modules/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/.cache",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
     ],
     "directories": {
-      "buildResources": "assets"
+      "output": "dist-electron"
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
-      "installerSidebar": "assets/installerSplash.bmp"
-    }
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BOQ Builder",
+
+      "deleteAppDataOnUninstall": true
+    },
+    "portable": {
+      "artifactName": "BOQ-Builder-Portable-${version}.exe"
+    },
+    "compression": "maximum",
+    "publish": null
   }
 }

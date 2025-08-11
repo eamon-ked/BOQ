@@ -1,197 +1,352 @@
-import { renderHook, act, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useAsyncOperation, useMultipleAsyncOperations } from '../useAsyncOperation';
+import { renderHook, act } from '@testing-library/react';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import toast from 'react-hot-toast';
+import { useAsyncOperation } from '../useAsyncOperation.js';
+
+// Mock dependencies
+vi.mock('react-hot-toast', () => ({
+  default: {
+    success: vi.fn(),
+    error: vi.fn(),
+    loading: vi.fn(),
+  }
+}));
+
+vi.mock('../../store/index.js', () => ({
+  useAppStore: vi.fn()
+}));
+
+vi.mock('../../utils/errorLogger.js', () => ({
+  errorLogger: {
+    logError: vi.fn()
+  },
+  ErrorType: {
+    COMPONENT_ERROR: 'component_error'
+  },
+  ErrorSeverity: {
+    MEDIUM: 'medium'
+  }
+}));
 
 describe('useAsyncOperation', () => {
-  beforeEach(() => {
+  let mockSetLoading, mockSetError, mockClearError;
+
+  beforeEach(async () => {
     vi.clearAllMocks();
+    
+    mockSetLoading = vi.fn();
+    mockSetError = vi.fn();
+    mockClearError = vi.fn();
+
+    const { useAppStore } = await import('../../store/index.js');
+    useAppStore.mockImplementation((selector) => {
+      const mockState = {
+        setLoading: mockSetLoading,
+        setError: mockSetError,
+        clearError: mockClearError
+      };
+      return selector ? selector(mockState) : mockState;
+    });
+
+    vi.useFakeTimers();
   });
 
-  describe('basic functionality', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe('Basic Functionality', () => {
     it('should initialize with correct default state', () => {
       const { result } = renderHook(() => useAsyncOperation());
 
       expect(result.current.isLoading).toBe(false);
       expect(result.current.error).toBe(null);
       expect(result.current.data).toBe(null);
+      expect(result.current.retryCount).toBe(0);
+      expect(result.current.hasError).toBe(false);
+      expect(result.current.hasData).toBe(false);
+      expect(result.current.canRetry).toBeFalsy();
+      expect(result.current.isRetrying).toBe(false);
     });
 
-    it('should handle successful async operation', async () => {
-      const { result } = renderHook(() => useAsyncOperation());
-      const mockAsyncFunction = vi.fn().mockResolvedValue('success data');
+    it('should execute async operation successfully', async () => {
+      const mockOperation = vi.fn().mockResolvedValue('success result');
+      const { result } = renderHook(() => useAsyncOperation({ preventFlickering: false }));
 
-      let executePromise;
-      act(() => {
-        executePromise = result.current.execute(mockAsyncFunction);
-      });
-
-      // Should be loading during execution
-      expect(result.current.isLoading).toBe(true);
-      expect(result.current.error).toBe(null);
-
-      // Wait for completion
-      const resultData = await act(async () => {
-        return await executePromise;
-      });
-
-      expect(resultData).toBe('success data');
-      expect(result.current.isLoading).toBe(false);
-      expect(result.current.data).toBe('success data');
-      expect(result.current.error).toBe(null);
-    });
-
-    it('should handle failed async operation', async () => {
-      const { result } = renderHook(() => useAsyncOperation());
-      const mockError = new Error('Test error');
-      const mockAsyncFunction = vi.fn().mockRejectedValue(mockError);
-
-      let executePromise;
-      act(() => {
-        executePromise = result.current.execute(mockAsyncFunction);
-      });
-
-      // Should be loading during execution
-      expect(result.current.isLoading).toBe(true);
-
-      // Wait for completion and expect error
       await act(async () => {
-        await expect(executePromise).rejects.toThrow('Test error');
+        await result.current.execute(mockOperation);
       });
 
       expect(result.current.isLoading).toBe(false);
-      expect(result.current.error).toBe('Test error');
-      expect(result.current.data).toBe(null);
+      expect(result.current.data).toBe('success result');
+      expect(result.current.error).toBe(null);
+      expect(result.current.hasData).toBe(true);
+      expect(result.current.hasError).toBe(false);
+      expect(mockOperation).toHaveBeenCalledWith({ signal: expect.any(AbortSignal), context: {} });
+    });
+
+    it('should handle operation failure', async () => {
+      const mockError = new Error('Operation failed');
+      const mockOperation = vi.fn().mockRejectedValue(mockError);
+      const { result } = renderHook(() => useAsyncOperation({ 
+        retryAttempts: 0,
+        preventFlickering: false
+      }));
+
+      let caughtError;
+      await act(async () => {
+        try {
+          await result.current.execute(mockOperation);
+        } catch (error) {
+          caughtError = error;
+        }
+      });
+
+      expect(caughtError).toBe(mockError);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toBe(mockError);
+      expect(result.current.hasError).toBe(true);
+      expect(result.current.hasData).toBe(false);
     });
 
     it('should call success callback on successful operation', async () => {
-      const onSuccess = vi.fn();
-      const { result } = renderHook(() => useAsyncOperation({ onSuccess }));
-      const mockAsyncFunction = vi.fn().mockResolvedValue('success data');
+      const mockOnSuccess = vi.fn();
+      const mockOperation = vi.fn().mockResolvedValue('success result');
+      const { result } = renderHook(() => useAsyncOperation({ 
+        onSuccess: mockOnSuccess,
+        preventFlickering: false
+      }));
 
       await act(async () => {
-        await result.current.execute(mockAsyncFunction);
+        await result.current.execute(mockOperation);
       });
 
-      expect(onSuccess).toHaveBeenCalledWith('success data');
+      expect(mockOnSuccess).toHaveBeenCalledWith('success result', {});
     });
 
     it('should call error callback on failed operation', async () => {
-      const onError = vi.fn();
-      const { result } = renderHook(() => useAsyncOperation({ onError }));
+      const mockOnError = vi.fn();
       const mockError = new Error('Test error');
-      const mockAsyncFunction = vi.fn().mockRejectedValue(mockError);
+      const mockOperation = vi.fn().mockRejectedValue(mockError);
+      const { result } = renderHook(() => useAsyncOperation({ 
+        onError: mockOnError,
+        retryAttempts: 0,
+        preventFlickering: false
+      }));
 
       await act(async () => {
         try {
-          await result.current.execute(mockAsyncFunction);
+          await result.current.execute(mockOperation);
         } catch (error) {
           // Expected to throw
         }
       });
 
-      expect(onError).toHaveBeenCalledWith(mockError);
+      expect(mockOnError).toHaveBeenCalledWith(mockError, expect.objectContaining({ finalAttempt: true }));
     });
   });
 
-  describe('loading state persistence', () => {
-    it('should persist loading state when persistLoading is true', async () => {
-      const { result } = renderHook(() => useAsyncOperation({ persistLoading: true }));
+  describe('Loading State Persistence', () => {
+    it('should persist loading state in store when persistLoading is true and key is provided', async () => {
+      const { result } = renderHook(() => useAsyncOperation({ 
+        persistLoading: true, 
+        key: 'test-operation',
+        preventFlickering: false
+      }));
       const mockAsyncFunction = vi.fn().mockResolvedValue('success data');
 
       await act(async () => {
         await result.current.execute(mockAsyncFunction);
       });
 
-      // Loading should still be true with persistLoading enabled
-      expect(result.current.isLoading).toBe(true);
+      expect(mockSetLoading).toHaveBeenCalledWith('test-operation', true);
+      expect(mockSetLoading).toHaveBeenCalledWith('test-operation', false);
     });
 
-    it('should clear loading state when persistLoading is false', async () => {
-      const { result } = renderHook(() => useAsyncOperation({ persistLoading: false }));
+    it('should not persist loading state when persistLoading is false', async () => {
+      const { result } = renderHook(() => useAsyncOperation({ 
+        persistLoading: false, 
+        key: 'test-operation',
+        preventFlickering: false
+      }));
       const mockAsyncFunction = vi.fn().mockResolvedValue('success data');
 
       await act(async () => {
         await result.current.execute(mockAsyncFunction);
       });
 
-      // Loading should be false with persistLoading disabled
+      expect(mockSetLoading).not.toHaveBeenCalled();
+    });
+
+    it('should handle minimum loading time to prevent flickering', async () => {
+      const { result } = renderHook(() => useAsyncOperation({ 
+        preventFlickering: true,
+        minLoadingTime: 100
+      }));
+      const mockAsyncFunction = vi.fn().mockResolvedValue('success data');
+      
+      await act(async () => {
+        const promise = result.current.execute(mockAsyncFunction);
+        await vi.runAllTimersAsync();
+        await promise;
+      });
+
       expect(result.current.isLoading).toBe(false);
+      expect(result.current.data).toBe('success data');
     });
   });
 
-  describe('retry functionality', () => {
-    it('should retry failed operations', async () => {
-      const { result } = renderHook(() => useAsyncOperation());
+  describe('Retry Functionality', () => {
+    it('should retry failed operations automatically', async () => {
+      const { result } = renderHook(() => useAsyncOperation({ 
+        retryAttempts: 2,
+        retryDelay: 10,
+        exponentialBackoff: false,
+        preventFlickering: false
+      }));
       const mockAsyncFunction = vi.fn()
         .mockRejectedValueOnce(new Error('First failure'))
         .mockRejectedValueOnce(new Error('Second failure'))
         .mockResolvedValueOnce('success data');
 
       await act(async () => {
-        const resultData = await result.current.executeWithRetry(mockAsyncFunction, 3, 10);
+        const promise = result.current.execute(mockAsyncFunction);
+        await vi.runAllTimersAsync();
+        const resultData = await promise;
         expect(resultData).toBe('success data');
       });
 
       expect(mockAsyncFunction).toHaveBeenCalledTimes(3);
+      expect(result.current.retryCount).toBe(0); // Reset after success
     });
 
-    it('should fail after max retries', async () => {
-      const { result } = renderHook(() => useAsyncOperation());
-      const mockError = new Error('Persistent error');
+    it('should not retry non-retryable errors', async () => {
+      const { result } = renderHook(() => useAsyncOperation({ 
+        retryAttempts: 2,
+        preventFlickering: false
+      }));
+      const mockError = new Error('Validation error');
+      mockError.status = 400; // Client error - not retryable
       const mockAsyncFunction = vi.fn().mockRejectedValue(mockError);
 
+      let caughtError;
       await act(async () => {
-        await expect(
-          result.current.executeWithRetry(mockAsyncFunction, 2, 10)
-        ).rejects.toThrow('Persistent error');
+        try {
+          await result.current.execute(mockAsyncFunction);
+        } catch (error) {
+          caughtError = error;
+        }
       });
 
-      expect(mockAsyncFunction).toHaveBeenCalledTimes(2);
+      expect(caughtError).toBe(mockError);
+      expect(mockAsyncFunction).toHaveBeenCalledTimes(1); // No retries
+      expect(result.current.retryCount).toBe(0);
     });
   });
 
-  describe('cancellation', () => {
-    it('should cancel ongoing operation', async () => {
+  describe('Error Handling', () => {
+    it('should show toast notifications for errors when enabled', async () => {
+      const { result } = renderHook(() => useAsyncOperation({ 
+        showToast: true,
+        retryAttempts: 0,
+        preventFlickering: false
+      }));
+      const mockError = new Error('Test error');
+      const mockAsyncFunction = vi.fn().mockRejectedValue(mockError);
+
+      let caughtError;
+      await act(async () => {
+        try {
+          await result.current.execute(mockAsyncFunction);
+        } catch (error) {
+          caughtError = error;
+        }
+      });
+
+      expect(caughtError).toBe(mockError);
+      expect(toast.error).toHaveBeenCalledWith('Test error', expect.any(Object));
+    });
+
+    it('should not show toast notifications when disabled', async () => {
+      const { result } = renderHook(() => useAsyncOperation({ 
+        showToast: false,
+        retryAttempts: 0,
+        preventFlickering: false
+      }));
+      const mockError = new Error('Test error');
+      const mockAsyncFunction = vi.fn().mockRejectedValue(mockError);
+
+      let caughtError;
+      await act(async () => {
+        try {
+          await result.current.execute(mockAsyncFunction);
+        } catch (error) {
+          caughtError = error;
+        }
+      });
+
+      expect(caughtError).toBe(mockError);
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it('should determine retryable errors correctly', () => {
       const { result } = renderHook(() => useAsyncOperation());
-      const mockAsyncFunction = vi.fn().mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve('data'), 1000))
-      );
 
-      act(() => {
-        result.current.execute(mockAsyncFunction);
-      });
+      // Network errors should be retryable
+      const networkError = new Error('fetch failed');
+      networkError.name = 'TypeError';
+      expect(result.current.isRetryableError(networkError)).toBe(true);
 
-      expect(result.current.isLoading).toBe(true);
+      // Server errors should be retryable
+      const serverError = new Error('Internal server error');
+      serverError.status = 500;
+      expect(result.current.isRetryableError(serverError)).toBe(true);
 
-      act(() => {
-        result.current.cancel();
-      });
+      // Client errors should not be retryable
+      const clientError = new Error('Bad request');
+      clientError.status = 400;
+      expect(result.current.isRetryableError(clientError)).toBe(false);
 
-      expect(result.current.isLoading).toBe(false);
+      // Rate limiting should be retryable
+      const rateLimitError = new Error('Too many requests');
+      rateLimitError.status = 429;
+      expect(result.current.isRetryableError(rateLimitError)).toBe(true);
     });
   });
 
-  describe('utility methods', () => {
+  describe('Utility Methods', () => {
     it('should clear error', async () => {
-      const { result } = renderHook(() => useAsyncOperation());
+      const { result } = renderHook(() => useAsyncOperation({ 
+        key: 'test-op',
+        retryAttempts: 0,
+        preventFlickering: false
+      }));
 
+      let caughtError;
       await act(async () => {
         try {
           await result.current.execute(vi.fn().mockRejectedValue(new Error('Test error')));
         } catch (error) {
-          // Expected to throw
+          caughtError = error;
         }
       });
+
+      expect(result.current.error).toBeTruthy();
+      expect(caughtError).toBeTruthy();
 
       act(() => {
         result.current.clearError();
       });
 
       expect(result.current.error).toBe(null);
+      expect(mockClearError).toHaveBeenCalledWith('test-op');
     });
 
-    it('should clear data', async () => {
-      const { result } = renderHook(() => useAsyncOperation());
+    it('should reset all state', async () => {
+      const { result } = renderHook(() => useAsyncOperation({ 
+        key: 'test-op',
+        preventFlickering: false
+      }));
       const mockAsyncFunction = vi.fn().mockResolvedValue('test data');
 
       await act(async () => {
@@ -201,92 +356,15 @@ describe('useAsyncOperation', () => {
       expect(result.current.data).toBe('test data');
 
       act(() => {
-        result.current.clearData();
-      });
-
-      expect(result.current.data).toBe(null);
-    });
-
-    it('should reset all state', async () => {
-      const { result } = renderHook(() => useAsyncOperation());
-      const mockAsyncFunction = vi.fn().mockResolvedValue('test data');
-
-      await act(async () => {
-        await result.current.execute(mockAsyncFunction);
-      });
-
-      act(() => {
         result.current.reset();
       });
 
       expect(result.current.isLoading).toBe(false);
       expect(result.current.error).toBe(null);
       expect(result.current.data).toBe(null);
-    });
-  });
-});
-
-describe('useMultipleAsyncOperations', () => {
-  it('should initialize with correct state for multiple operations', () => {
-    const operationKeys = ['operation1', 'operation2', 'operation3'];
-    const { result } = renderHook(() => useMultipleAsyncOperations(operationKeys));
-
-    expect(result.current.loadingStates).toEqual({
-      operation1: false,
-      operation2: false,
-      operation3: false
-    });
-    expect(result.current.errors).toEqual({
-      operation1: null,
-      operation2: null,
-      operation3: null
-    });
-    expect(result.current.isAnyLoading).toBe(false);
-    expect(result.current.hasAnyError).toBe(false);
-  });
-
-  it('should handle multiple operations independently', async () => {
-    const operationKeys = ['op1', 'op2'];
-    const { result } = renderHook(() => useMultipleAsyncOperations(operationKeys));
-
-    const mockAsyncFunction1 = vi.fn().mockResolvedValue('data1');
-    const mockAsyncFunction2 = vi.fn().mockRejectedValue(new Error('error2'));
-
-    await act(async () => {
-      await result.current.execute('op1', mockAsyncFunction1);
-    });
-
-    await act(async () => {
-      try {
-        await result.current.execute('op2', mockAsyncFunction2);
-      } catch (error) {
-        // Expected to throw
-      }
-    });
-
-    expect(result.current.data.op1).toBe('data1');
-    expect(result.current.errors.op2).toBe('error2');
-    expect(result.current.loadingStates.op1).toBe(false);
-    expect(result.current.loadingStates.op2).toBe(false);
-  });
-
-  it('should track any loading state correctly', async () => {
-    const operationKeys = ['op1', 'op2'];
-    const { result } = renderHook(() => useMultipleAsyncOperations(operationKeys));
-
-    const mockAsyncFunction = vi.fn().mockImplementation(
-      () => new Promise(resolve => setTimeout(() => resolve('data'), 100))
-    );
-
-    act(() => {
-      result.current.execute('op1', mockAsyncFunction);
-    });
-
-    expect(result.current.isAnyLoading).toBe(true);
-    expect(result.current.loadingStates.op1).toBe(true);
-
-    await waitFor(() => {
-      expect(result.current.isAnyLoading).toBe(false);
+      expect(result.current.retryCount).toBe(0);
+      expect(result.current.lastExecutionTime).toBe(null);
+      expect(mockClearError).toHaveBeenCalledWith('test-op');
     });
   });
 });

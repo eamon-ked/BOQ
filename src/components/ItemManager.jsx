@@ -1,4 +1,4 @@
-import React, { useState, memo, useCallback, useMemo } from 'react';
+import React, { useState, memo, useCallback, useMemo, useEffect } from 'react';
 import { Plus, Edit3, Trash2, X, Save, AlertCircle } from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -8,12 +8,14 @@ import { useValidatedForm } from '../hooks/useValidatedForm';
 import { createItemFormSchema, updateItemFormSchema } from '../validation/schemas';
 
 // Field Error Display Component
-const FieldError = memo(({ error, warning, touched }) => {
+const FieldError = memo(({ error, warning, touched, fieldName }) => {
   if (!touched) return null;
+  
+  const errorId = fieldName ? `field-${fieldName}-error` : undefined;
   
   if (error) {
     return (
-      <div className="flex items-center gap-1 mt-1 text-red-600">
+      <div id={errorId} className="flex items-center gap-1 mt-1 text-red-600" role="alert">
         <AlertCircle size={12} />
         <span className="text-xs">{error}</span>
       </div>
@@ -22,7 +24,7 @@ const FieldError = memo(({ error, warning, touched }) => {
   
   if (warning) {
     return (
-      <div className="flex items-center gap-1 mt-1 text-yellow-600">
+      <div id={errorId} className="flex items-center gap-1 mt-1 text-yellow-600" role="alert">
         <AlertCircle size={12} />
         <span className="text-xs">{warning}</span>
       </div>
@@ -48,6 +50,13 @@ const ValidatedInput = memo(({
   const hasError = touched && error;
   const hasWarning = touched && warning && !error;
   
+  // Generate unique ID for accessibility
+  const fieldId = `field-${fieldProps.name}`;
+  const errorId = hasError ? `${fieldId}-error` : undefined;
+  
+  // Filter out non-DOM properties from fieldProps
+  const { error: _, warning: __, touched: ___, ...domProps } = fieldProps;
+  
   const inputClassName = `w-full px-3 py-2 border rounded-lg transition-colors duration-200 ${
     hasError 
       ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
@@ -58,25 +67,43 @@ const ValidatedInput = memo(({
 
   return (
     <div>
-      <label className="block text-sm font-medium mb-1">
+      <label htmlFor={fieldId} className="block text-sm font-medium mb-1">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       {type === 'select' ? (
-        <select {...fieldProps} {...props} className={inputClassName}>
+        <select 
+          {...domProps} 
+          {...props} 
+          id={fieldId}
+          className={inputClassName}
+          aria-invalid={hasError}
+          aria-describedby={errorId}
+        >
           {children}
         </select>
       ) : type === 'textarea' ? (
-        <textarea {...fieldProps} {...props} className={inputClassName} placeholder={placeholder} />
+        <textarea 
+          {...domProps} 
+          {...props} 
+          id={fieldId}
+          className={inputClassName} 
+          placeholder={placeholder}
+          aria-invalid={hasError}
+          aria-describedby={errorId}
+        />
       ) : (
         <input 
-          {...fieldProps} 
+          {...domProps} 
           {...props} 
+          id={fieldId}
           type={type} 
           className={inputClassName} 
-          placeholder={placeholder} 
+          placeholder={placeholder}
+          aria-invalid={hasError}
+          aria-describedby={errorId}
         />
       )}
-      <FieldError error={error} warning={warning} touched={touched} />
+      <FieldError error={error} warning={warning} touched={touched} fieldName={fieldProps.name} />
     </div>
   );
 });
@@ -148,14 +175,38 @@ const ItemManager = memo(() => {
 
   const units = ['pcs', 'meters', 'rolls', 'kg', 'liters'];
 
+  // Ensure form is properly initialized
+  useEffect(() => {
+    if (!isAddingItem && !editingItem) {
+      resetForm(defaultFormValues);
+    }
+  }, [isAddingItem, editingItem, resetForm]);
+
   // Generate unique ID based on name and category
   const generateItemId = (name, category) => {
-    const cleanName = name.toLowerCase()
+    // Ensure name and category are strings and not empty
+    let safeName = '';
+    let safeCategory = '';
+    
+    try {
+      safeName = (name || '').toString().trim();
+      safeCategory = (category || '').toString().trim();
+    } catch (error) {
+      console.warn('Error converting name/category to string:', error);
+      safeName = '';
+      safeCategory = '';
+    }
+    
+    if (!safeName || !safeCategory) {
+      return 'incomplete-item-' + Date.now().toString().slice(-4);
+    }
+    
+    const cleanName = safeName.toLowerCase()
       .replace(/[^a-z0-9\s]/g, '') // Remove special characters
       .replace(/\s+/g, '-') // Replace spaces with hyphens
       .substring(0, 20); // Limit length
     
-    const cleanCategory = category.toLowerCase()
+    const cleanCategory = safeCategory.toLowerCase()
       .replace(/[^a-z0-9\s]/g, '')
       .replace(/\s+/g, '-')
       .substring(0, 10);
@@ -168,6 +219,52 @@ const ItemManager = memo(() => {
   const addMasterItem = useAppStore((state) => state.addMasterItem);
   const updateMasterItem = useAppStore((state) => state.updateMasterItem);
   const deleteMasterItem = useAppStore((state) => state.deleteMasterItem);
+
+  // Utility function to clean up malformed items
+  const cleanupMalformedItems = useCallback(() => {
+    const cleanedItems = items.map(item => {
+      const cleanedItem = { ...item };
+      
+      // Fix string fields that might be objects
+      const stringFields = ['name', 'category', 'manufacturer', 'partNumber', 'unit', 'pricingTerm', 'description'];
+      stringFields.forEach(field => {
+        if (typeof cleanedItem[field] === 'object' && cleanedItem[field] !== null) {
+          console.log(`Cleaning malformed field ${field} in item ${item.id}:`, cleanedItem[field]);
+          cleanedItem[field] = '';
+        }
+      });
+      
+      // Fix numeric fields
+      const numericFields = ['unitPrice', 'unitNetPrice', 'serviceDuration', 'estimatedLeadTime', 'discount'];
+      numericFields.forEach(field => {
+        if (typeof cleanedItem[field] === 'object' && cleanedItem[field] !== null) {
+          console.log(`Cleaning malformed numeric field ${field} in item ${item.id}:`, cleanedItem[field]);
+          cleanedItem[field] = 0;
+        }
+      });
+      
+      // Fix array fields
+      if (!Array.isArray(cleanedItem.tags)) {
+        cleanedItem.tags = [];
+      }
+      if (!Array.isArray(cleanedItem.dependencies)) {
+        cleanedItem.dependencies = [];
+      }
+      
+      // Fix metadata
+      if (typeof cleanedItem.metadata !== 'object' || cleanedItem.metadata === null) {
+        cleanedItem.metadata = { isActive: true };
+      }
+      
+      return cleanedItem;
+    });
+    
+    setMasterDatabase(cleanedItems);
+    toast.success('Database cleaned up successfully!', {
+      duration: 3000,
+      icon: '🧹',
+    });
+  }, [items, setMasterDatabase]);
 
   const resetFormState = useCallback(() => {
     resetForm(defaultFormValues);
@@ -228,19 +325,45 @@ const ItemManager = memo(() => {
   }, [editingItem, items, updateMasterItem, addMasterItem, resetFormState]);
 
   const startEdit = useCallback((item) => {
-    // Prepare item data for form, ensuring all required fields exist
+    // Debug: Log the raw item data to see what we're working with
+    console.log('startEdit - Raw item data:', item);
+    console.log('startEdit - Item keys:', Object.keys(item));
+    console.log('startEdit - Item.name:', item.name, 'type:', typeof item.name);
+    console.log('startEdit - Item.category:', item.category, 'type:', typeof item.category);
+    console.log('startEdit - Item.id:', item.id, 'type:', typeof item.id);
+    
+    // Prepare item data for form, ensuring all required fields exist and properly typed
     const itemForForm = {
+      // Start with default values to ensure structure
       ...defaultFormValues,
-      ...item,
-      // Ensure arrays exist
-      tags: item.tags || [],
-      dependencies: item.dependencies || [],
-      // Ensure metadata exists
+      // Override with item data, but ensure proper types
+      id: item.id || '',
+      name: typeof item.name === 'object' ? '' : String(item.name || ''),
+      category: typeof item.category === 'object' ? '' : String(item.category || ''),
+      manufacturer: typeof item.manufacturer === 'object' ? '' : String(item.manufacturer || ''),
+      partNumber: typeof item.partNumber === 'object' ? '' : String(item.partNumber || ''),
+      unit: typeof item.unit === 'object' ? 'pcs' : String(item.unit || 'pcs'),
+      pricingTerm: typeof item.pricingTerm === 'object' ? 'Each' : String(item.pricingTerm || 'Each'),
+      description: typeof item.description === 'object' ? '' : String(item.description || ''),
+      // Ensure numeric fields are numbers
+      unitPrice: Number(item.unitPrice) || 0,
+      unitNetPrice: Number(item.unitNetPrice) || 0,
+      serviceDuration: Number(item.serviceDuration) || 0,
+      estimatedLeadTime: Number(item.estimatedLeadTime) || 0,
+      discount: Number(item.discount) || 0,
+      // Ensure arrays exist and are arrays
+      tags: Array.isArray(item.tags) ? item.tags : [],
+      dependencies: Array.isArray(item.dependencies) ? item.dependencies : [],
+      // Ensure metadata is an object with proper structure
       metadata: {
         ...defaultFormValues.metadata,
-        ...(item.metadata || {})
+        ...(typeof item.metadata === 'object' && item.metadata !== null ? item.metadata : {})
       }
     };
+    
+    console.log('startEdit - Processed item data:', itemForForm);
+    console.log('startEdit - Processed name:', itemForForm.name, 'type:', typeof itemForForm.name);
+    console.log('startEdit - Processed category:', itemForForm.category, 'type:', typeof itemForForm.category);
     
     setValues(itemForForm, false); // Don't validate immediately when loading
     setEditingItem(item);
@@ -385,6 +508,13 @@ const ItemManager = memo(() => {
               >
                 Import Items
               </button>
+              <button
+                onClick={cleanupMalformedItems}
+                className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-white px-4 py-2 rounded-lg hover:from-yellow-500 hover:to-yellow-600 transition-all duration-200"
+                title="Clean up any malformed items in the database"
+              >
+                🧹 Cleanup DB
+              </button>
               <button 
                 onClick={() => closeModal('itemEditor')} 
                 className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-all duration-200"
@@ -405,7 +535,11 @@ const ItemManager = memo(() => {
                   <p className="text-sm text-gray-600">{items.length} items available</p>
                 </div>
                 <button
-                  onClick={() => setIsAddingItem(true)}
+                  onClick={() => {
+                    setEditingItem(null);
+                    resetForm(defaultFormValues);
+                    setIsAddingItem(true);
+                  }}
                   className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 flex items-center gap-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                 >
                   <Plus size={16} />
@@ -446,7 +580,7 @@ const ItemManager = memo(() => {
                             )}
                           </div>
                           
-                          <p className="text-sm text-gray-600 mb-1">${item.unitPrice}/{item.unit}</p>
+                          <p className="text-sm text-gray-600 mb-1">${Number(item.unitPrice) || 0}/{item.unit}</p>
                           <p className="text-xs text-gray-500 line-clamp-2">{item.description}</p>
                         </div>
                         
@@ -497,14 +631,14 @@ const ItemManager = memo(() => {
                 {editingItem ? (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                     <p className="text-sm text-blue-800">
-                      <strong>Item ID:</strong> {formData.id}
+                      <strong>Item ID:</strong> {String(formData.id || '')}
                     </p>
                   </div>
                 ) : (
                   formData.name && formData.category && (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
                       <p className="text-sm text-green-800">
-                        <strong>Generated ID Preview:</strong> {generateItemId(formData.name, formData.category)}
+                        <strong>Generated ID Preview:</strong> {generateItemId(String(formData.name), String(formData.category))}
                       </p>
                       <p className="text-xs text-green-600 mt-1">
                         ID will be automatically generated and made unique when you save
@@ -572,7 +706,7 @@ const ItemManager = memo(() => {
                       step="0.01"
                       min="0"
                       placeholder="0.00"
-                      fieldProps={getFieldProps('unitPrice')}
+                      fieldProps={getFieldProps('unitPrice', { type: 'number' })}
                       fieldState={getFieldState('unitPrice')}
                     />
                     <ValidatedInput
@@ -581,7 +715,7 @@ const ItemManager = memo(() => {
                       step="0.01"
                       min="0"
                       placeholder="Auto-calculated"
-                      fieldProps={getFieldProps('unitNetPrice')}
+                      fieldProps={getFieldProps('unitNetPrice', { type: 'number' })}
                       fieldState={getFieldState('unitNetPrice')}
                     />
                     <ValidatedInput
@@ -592,7 +726,7 @@ const ItemManager = memo(() => {
                       max="100"
                       placeholder="0.0"
                       fieldProps={{
-                        ...getFieldProps('discount'),
+                        ...getFieldProps('discount', { type: 'number' }),
                         onChange: (e) => {
                           const discount = parseFloat(e.target.value) || 0;
                           const listPrice = parseFloat(formData.unitPrice) || 0;
@@ -631,7 +765,7 @@ const ItemManager = memo(() => {
                         type="number"
                         min="0"
                         placeholder="0"
-                        fieldProps={getFieldProps('serviceDuration')}
+                        fieldProps={getFieldProps('serviceDuration', { type: 'number' })}
                         fieldState={getFieldState('serviceDuration')}
                       />
                       <p className="text-xs text-gray-500 mt-1">Warranty/service period in months</p>
@@ -642,7 +776,7 @@ const ItemManager = memo(() => {
                         type="number"
                         min="0"
                         placeholder="0"
-                        fieldProps={getFieldProps('estimatedLeadTime')}
+                        fieldProps={getFieldProps('estimatedLeadTime', { type: 'number' })}
                         fieldState={getFieldState('estimatedLeadTime')}
                       />
                       <p className="text-xs text-gray-500 mt-1">Expected delivery time in days</p>
@@ -680,7 +814,7 @@ const ItemManager = memo(() => {
                         onChange={(e) => updateDependency(index, 'itemId', e.target.value)}
                       >
                         <option value="">Select item</option>
-                        {items.filter(item => item.id !== formData.id).map(item => (
+                        {items.filter(item => item.id !== String(formData.id || '')).map(item => (
                           <option key={item.id} value={item.id}>{item.name}</option>
                         ))}
                       </select>
@@ -710,14 +844,14 @@ const ItemManager = memo(() => {
                 <button
                   type="submit"
                   form="item-form"
-                  disabled={!isFormValid || isSubmitting}
+                  disabled={!isFormValid || isSubmitting || !formData.name?.trim() || !formData.category?.trim()}
                   className={`fixed bottom-8 right-8 p-4 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-110 z-30 animate-fadeIn ${
-                    !isFormValid || isSubmitting
+                    !isFormValid || isSubmitting || !formData.name?.trim() || !formData.category?.trim()
                       ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
                       : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
                   }`}
                   title={
-                    !isFormValid 
+                    !isFormValid || !formData.name?.trim() || !formData.category?.trim()
                       ? 'Please fix validation errors' 
                       : isSubmitting 
                       ? 'Submitting...' 
@@ -734,9 +868,9 @@ const ItemManager = memo(() => {
                   <button
                     type="submit"
                     form="item-form"
-                    disabled={!isFormValid || isSubmitting}
+                    disabled={!isFormValid || isSubmitting || !formData.name?.trim() || !formData.category?.trim()}
                     className={`flex-1 px-4 py-3 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 ${
-                      !isFormValid || isSubmitting
+                      !isFormValid || isSubmitting || !formData.name?.trim() || !formData.category?.trim()
                         ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
                         : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
                     }`}
@@ -760,11 +894,11 @@ const ItemManager = memo(() => {
                 
                 {/* Progress indicator */}
                 <div className="mt-2 flex items-center justify-center gap-2 text-xs text-gray-500">
-                  <div className={`w-2 h-2 rounded-full ${formData.name && !formErrors.name ? 'bg-green-400' : formErrors.name ? 'bg-red-400' : 'bg-gray-300'}`}></div>
-                  <div className={`w-2 h-2 rounded-full ${formData.category && !formErrors.category ? 'bg-green-400' : formErrors.category ? 'bg-red-400' : 'bg-gray-300'}`}></div>
-                  <div className={`w-2 h-2 rounded-full ${formData.unitPrice > 0 && !formErrors.unitPrice ? 'bg-green-400' : formErrors.unitPrice ? 'bg-red-400' : 'bg-gray-300'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${String(formData.name || '').trim() && !formErrors.name ? 'bg-green-400' : formErrors.name ? 'bg-red-400' : 'bg-gray-300'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${String(formData.category || '').trim() && !formErrors.category ? 'bg-green-400' : formErrors.category ? 'bg-red-400' : 'bg-gray-300'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${(Number(formData.unitPrice) || 0) >= 0 && !formErrors.unitPrice ? 'bg-green-400' : formErrors.unitPrice ? 'bg-red-400' : 'bg-gray-300'}`}></div>
                   <span className="ml-2">
-                    {isFormValid ? 'Form is valid' : `${Object.keys(formErrors).length} validation errors`}
+                    {isFormValid && formData.name?.trim() && formData.category?.trim() ? 'Form is valid' : `${Object.keys(formErrors).length} validation errors`}
                   </span>
                 </div>
               </div>

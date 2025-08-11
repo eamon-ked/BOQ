@@ -225,8 +225,8 @@ const BOQExport = ({ isOpen, onClose, boqItems }) => {
         item.manufacturer || 'N/A',
         item.quantity.toString(),
         item.unit,
-        `${item.unitPrice.toFixed(2)}`,
-        `${(item.quantity * item.unitPrice).toFixed(2)}`
+        `${(Number(item.unitPrice) || 0).toFixed(2)}`,
+        `${(item.quantity * (Number(item.unitPrice) || 0)).toFixed(2)}`
       ]);
       
       doc.autoTable({

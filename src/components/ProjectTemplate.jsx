@@ -65,9 +65,11 @@ const ValidatedInput = ({
   
   const inputClassName = `w-full px-3 py-2 border rounded-lg transition-colors duration-200 ${
     hasError 
-      ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
+      ? 'border-red-300 focus:border-red-500 focus:ring-red-200 bg-red-50' 
       : hasWarning
-      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200'
+      ? 'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-200 bg-yellow-50'
+      : touched && !error
+      ? 'border-green-300 focus:border-green-500 focus:ring-green-200 bg-green-50'
       : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
   } focus:ring-2 focus:ring-opacity-50 ${className}`;
 
@@ -724,12 +726,36 @@ const ProjectTemplate = ({
                   </div>
 
                   {/* Validation Status */}
-                  {Object.keys(formErrors).length > 0 && (
-                    <div className="text-xs text-red-600 flex items-center gap-1">
-                      <AlertCircle size={12} />
-                      <span>{Object.keys(formErrors).length} validation error(s)</span>
+                  <div className="flex items-center justify-between text-xs">
+                    {Object.keys(formErrors).length > 0 ? (
+                      <div className="text-red-600 flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        <span>{Object.keys(formErrors).length} validation error(s)</span>
+                      </div>
+                    ) : isFormValid && formData.name?.trim() ? (
+                      <div className="text-green-600 flex items-center gap-1">
+                        <CheckCircle size={12} />
+                        <span>Template ready</span>
+                      </div>
+                    ) : (
+                      <div className="text-gray-500 flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        <span>Fill required fields</span>
+                      </div>
+                    )}
+                    
+                    {/* Form progress indicators */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <div className={`w-2 h-2 rounded-full ${formData.name?.trim() ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                        <span className="text-gray-400">Name</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className={`w-2 h-2 rounded-full ${formData.templateCategory?.trim() ? 'bg-green-400' : 'bg-gray-300'}`}></div>
+                        <span className="text-gray-400">Category</span>
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </form>
               </div>
             </div>

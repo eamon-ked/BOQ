@@ -471,6 +471,20 @@ app.post('/api/boq-projects/:id/clone', (req, res) => {
   }
 });
 
+// Clear database endpoint
+app.post('/api/database/clear', (req, res) => {
+  try {
+    const result = db.clearDatabase();
+    if (result.success) {
+      res.json({ success: true, message: 'Database cleared successfully' });
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('Shutting down server...');

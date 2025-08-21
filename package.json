@@ -1,6 +1,6 @@
 {
   "name": "boq-builder",
-  "version": "1.1.2",
+  "version": "1.1.8",
   "description": "Bill of Quantities Generator",
   "main": "main.js",
   "scripts": {
@@ -14,10 +14,7 @@
     "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
     "electron:dev": "npx electron .",
     "electron:build": "npm run build && npx electron .",
-    "dist": "node scripts/build-electron.js",
-    "dist:win": "npm run build && npx electron-builder --win",
-    "dist:portable": "npm run build && npx electron-builder --win portable",
-    "dist:clean": "npm run build && npx electron-builder --win --publish=never",
+    "postinstall": "electron-builder install-app-deps",
     "test": "vitest --config vite.config.test.js",
     "test:run": "vitest run --config vite.config.test.js",
     "test:performance": "vitest run --config vite.config.test.js src/test/performance.test.jsx",
@@ -57,7 +54,6 @@
     "concurrently": "^9.2.0",
     "electron": "^37.2.4",
     "electron-builder": "^26.0.12",
-    "electron-rebuild": "^3.2.9",
     "jsdom": "^26.1.0",
     "postcss": "^8.4.27",
     "tailwindcss": "^3.3.3",
@@ -66,53 +62,22 @@
   },
   "build": {
     "appId": "com.nokael.boqbuilder",
-    "productName": "BOQ Builder",
-    "copyright": "Copyright © 2024 Nokael",
+    "productName": "BOQ Generator",
     "files": [
       "dist/**/*",
       "main.js",
       "server/**/*",
       "node_modules/**/*",
-      "package.json",
-      "!node_modules/.cache",
-      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
-      "!.editorconfig",
-      "!**/._*",
-      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
-      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
-      "!**/{appveyor.yml,.travis.yml,circle.yml}",
-      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+      "package.json"
     ],
     "directories": {
-      "output": "dist-electron"
+      "buildResources": "assets"
     },
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        },
-        {
-          "target": "portable",
-          "arch": ["x64"]
-        }
-      ],
-
-      "verifyUpdateCodeSignature": false
+      "target": "nsis"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "BOQ Builder",
-
-      "deleteAppDataOnUninstall": true
-    },
-    "portable": {
-      "artifactName": "BOQ-Builder-Portable-${version}.exe"
-    },
-    "compression": "maximum",
-    "publish": null
+      "installerSidebar": "assets/installerSplash.bmp"
+    }
   }
 }

@@ -1,190 +1,248 @@
 # BOQ Builder - Deployment Checklist
 
-## Pre-Build Checklist
+## Pre-Deployment Verification
 
-### ✅ Code Preparation
-- [ ] All features tested and working
-- [ ] No console errors in production build
-- [ ] Dark mode working across all components
-- [ ] Database starts clean (no sample data)
-- [ ] Performance optimizations applied
-- [ ] Error tracking configured
+### Code Quality
+- [ ] All tests pass (`npm test`)
+- [ ] No linting errors (`npm run lint`)
+- [ ] Code coverage meets minimum threshold (80%+)
+- [ ] No TypeScript/JavaScript errors
+- [ ] All console.log statements removed from production code
+- [ ] No TODO/FIXME comments in critical paths
 
-### ✅ Assets & Branding
-- [ ] Custom icon.ico created (256x256px)
-- [ ] App name and version updated in package.json
-- [ ] Copyright information updated
-- [ ] Publisher name set correctly
+### Security
+- [ ] All user inputs are validated and sanitized
+- [ ] SQL injection prevention measures in place
+- [ ] XSS protection implemented
+- [ ] CSRF protection enabled
+- [ ] Secure headers configured
+- [ ] No sensitive data in client-side code
+- [ ] Environment variables properly configured
+- [ ] Database credentials secured
 
-### ✅ Database Configuration
-- [ ] Clean database initialization verified
-- [ ] Only basic categories included
-- [ ] No sample items in production build
-- [ ] Database path configured for user directory
+### Performance
+- [ ] Bundle size optimized (< 500KB gzipped)
+- [ ] Images optimized and compressed
+- [ ] Database queries optimized with proper indexes
+- [ ] Lazy loading implemented for large components
+- [ ] Virtual scrolling enabled for large lists
+- [ ] Caching strategies implemented
+- [ ] Memory leaks checked and resolved
 
-## Build Process
+### Functionality
+- [ ] All major user workflows tested
+- [ ] Error handling works correctly
+- [ ] Loading states display properly
+- [ ] Form validation functions as expected
+- [ ] Export functionality works for all formats
+- [ ] Bulk operations perform correctly
+- [ ] Search and filtering work with large datasets
+- [ ] Project management features functional
 
-### ✅ Environment Setup
-- [ ] Node.js 18+ installed
-- [ ] All dependencies installed (`npm install`)
-- [ ] Previous builds cleaned
-- [ ] Windows build environment ready
+### Browser Compatibility
+- [ ] Chrome (latest 2 versions)
+- [ ] Firefox (latest 2 versions)
+- [ ] Safari (latest 2 versions)
+- [ ] Edge (latest 2 versions)
+- [ ] Mobile browsers tested
 
-### ✅ Build Execution
+### Accessibility
+- [ ] WCAG 2.1 AA compliance verified
+- [ ] Screen reader compatibility tested
+- [ ] Keyboard navigation works throughout app
+- [ ] Color contrast ratios meet standards
+- [ ] Alt text provided for images
+- [ ] ARIA labels implemented where needed
+
+## Production Environment Setup
+
+### Server Configuration
+- [ ] Node.js version matches development (v18+)
+- [ ] PM2 or similar process manager configured
+- [ ] HTTPS/SSL certificates installed
+- [ ] Reverse proxy configured (nginx/Apache)
+- [ ] Firewall rules configured
+- [ ] Log rotation configured
+- [ ] Monitoring tools installed
+
+### Database
+- [ ] Production database created
+- [ ] Database migrations run
+- [ ] Database indexes created
+- [ ] Backup strategy implemented
+- [ ] Connection pooling configured
+- [ ] Database user permissions set correctly
+
+### Environment Variables
+- [ ] `NODE_ENV=production`
+- [ ] Database connection strings
+- [ ] API keys and secrets
+- [ ] CORS origins configured
+- [ ] Session secrets set
+- [ ] File upload paths configured
+
+### Build Process
+- [ ] Production build created (`npm run build`)
+- [ ] Static assets served correctly
+- [ ] Source maps excluded from production
+- [ ] Bundle analysis completed
+- [ ] CDN configured for static assets (if applicable)
+
+## Deployment Steps
+
+### 1. Pre-deployment
 ```bash
-# Option 1: Use build script
-npm run dist
+# Run full test suite
+npm test
 
-# Option 2: Use batch file (Windows)
-build-exe.bat
-
-# Option 3: Manual steps
+# Build production bundle
 npm run build
-npx electron-builder --win
+
+# Analyze bundle size
+npm run analyze
+
+# Run security audit
+npm audit
+
+# Check for outdated dependencies
+npm outdated
 ```
 
-### ✅ Build Verification
-- [ ] React app builds without errors
-- [ ] Electron packaging completes successfully
-- [ ] Both installer and portable versions created
-- [ ] File sizes reasonable (< 200MB typically)
+### 2. Database Migration
+```bash
+# Backup current database
+sqlite3 production.db ".backup backup_$(date +%Y%m%d_%H%M%S).db"
 
-## Post-Build Testing
+# Run migrations
+npm run migrate
+```
 
-### ✅ Installation Testing
-- [ ] Installer runs without errors
-- [ ] Desktop shortcut created
-- [ ] Start menu entry added
-- [ ] App launches successfully
-- [ ] Database initializes correctly
+### 3. Application Deployment
+```bash
+# Stop current application
+pm2 stop boq-builder
 
-### ✅ Functionality Testing
-- [ ] All main features work
-- [ ] Database operations function
-- [ ] Import/export capabilities work
-- [ ] Dark mode toggle works
-- [ ] Keyboard shortcuts functional
-- [ ] Performance dashboard accessible (dev mode)
+# Deploy new code
+git pull origin main
+npm ci --production
 
-### ✅ Portable Version Testing
-- [ ] Portable exe runs without installation
-- [ ] Database created in correct location
-- [ ] All features work identically
-- [ ] Can run from different directories
+# Start application
+pm2 start ecosystem.config.js
+pm2 save
+```
 
-## Distribution Preparation
+### 4. Post-deployment Verification
+- [ ] Application starts without errors
+- [ ] Health check endpoint responds
+- [ ] Database connections work
+- [ ] File uploads function
+- [ ] Email notifications work (if applicable)
+- [ ] External API integrations work
+- [ ] SSL certificate valid
+- [ ] Performance metrics within acceptable range
 
-### ✅ File Organization
-- [ ] Installer: `BOQ Builder Setup X.X.X.exe`
-- [ ] Portable: `BOQ-Builder-Portable-X.X.X.exe`
-- [ ] File sizes documented
-- [ ] Checksums generated (optional)
+## Rollback Plan
 
-### ✅ Documentation
-- [ ] User manual updated
-- [ ] Installation instructions prepared
-- [ ] System requirements documented
-- [ ] Troubleshooting guide ready
+### Quick Rollback
+```bash
+# Stop current version
+pm2 stop boq-builder
 
-### ✅ Security Considerations
-- [ ] Code signing certificate (if available)
-- [ ] Virus scan completed
-- [ ] Windows SmartScreen bypass instructions
-- [ ] Firewall/antivirus whitelist instructions
+# Revert to previous version
+git checkout previous-stable-tag
+npm ci --production
 
-## Release Checklist
+# Restore database if needed
+sqlite3 production.db ".restore backup_YYYYMMDD_HHMMSS.db"
 
-### ✅ Version Management
-- [ ] Version number incremented
-- [ ] Changelog updated
-- [ ] Git tags created
-- [ ] Release notes prepared
+# Start application
+pm2 start ecosystem.config.js
+```
 
-### ✅ Distribution Channels
-- [ ] Upload locations prepared
-- [ ] Download links tested
-- [ ] Mirror sites updated (if applicable)
-- [ ] Update notifications configured
+### Rollback Triggers
+- [ ] Application won't start
+- [ ] Critical functionality broken
+- [ ] Performance degradation > 50%
+- [ ] Security vulnerability discovered
+- [ ] Data corruption detected
 
-### ✅ Support Preparation
-- [ ] Support documentation ready
-- [ ] Known issues documented
-- [ ] FAQ updated
-- [ ] Contact information current
+## Monitoring and Alerts
 
-## Quality Assurance
+### Application Monitoring
+- [ ] Error tracking (Sentry/similar)
+- [ ] Performance monitoring (APM)
+- [ ] Uptime monitoring
+- [ ] Log aggregation
+- [ ] Resource usage monitoring
 
-### ✅ Cross-System Testing
-- [ ] Windows 10 compatibility
-- [ ] Windows 11 compatibility
-- [ ] Different user permission levels
-- [ ] Various screen resolutions
-- [ ] Multiple monitor setups
+### Key Metrics to Monitor
+- [ ] Response time < 200ms for API calls
+- [ ] Error rate < 1%
+- [ ] Memory usage < 512MB
+- [ ] CPU usage < 70%
+- [ ] Disk usage < 80%
+- [ ] Database query time < 100ms
 
-### ✅ Performance Verification
-- [ ] Startup time acceptable (< 5 seconds)
-- [ ] Memory usage reasonable (< 200MB idle)
-- [ ] Database operations fast
-- [ ] UI responsive
-- [ ] No memory leaks detected
+### Alert Thresholds
+- [ ] Application down > 1 minute
+- [ ] Error rate > 5%
+- [ ] Response time > 1 second
+- [ ] Memory usage > 80%
+- [ ] Disk usage > 90%
 
-### ✅ Edge Cases
-- [ ] Network connectivity issues handled
-- [ ] Disk space limitations handled
-- [ ] Corrupted database recovery
-- [ ] Large dataset performance
-- [ ] Concurrent usage scenarios
+## Post-Deployment Tasks
 
-## Final Steps
+### Immediate (0-2 hours)
+- [ ] Monitor error logs
+- [ ] Check performance metrics
+- [ ] Verify critical user workflows
+- [ ] Monitor resource usage
+- [ ] Check backup systems
 
-### ✅ Release Preparation
-- [ ] All tests passed
-- [ ] Documentation complete
-- [ ] Distribution files ready
-- [ ] Backup of source code created
-- [ ] Release announcement prepared
+### Short-term (2-24 hours)
+- [ ] Review user feedback
+- [ ] Monitor performance trends
+- [ ] Check for memory leaks
+- [ ] Verify scheduled tasks
+- [ ] Update documentation
 
-### ✅ Post-Release
-- [ ] Monitor for user feedback
-- [ ] Track download statistics
-- [ ] Monitor error reports
-- [ ] Prepare for updates/patches
+### Long-term (1-7 days)
+- [ ] Analyze usage patterns
+- [ ] Review performance improvements
+- [ ] Plan next iteration
+- [ ] Update monitoring thresholds
 - [ ] Document lessons learned
 
-## Build Commands Reference
+## Emergency Contacts
 
-```bash
-# Full build with cleanup
-npm run dist
+### Technical Team
+- Lead Developer: [Contact Info]
+- DevOps Engineer: [Contact Info]
+- Database Administrator: [Contact Info]
 
-# Windows installer only
-npm run dist:win
+### Business Team
+- Product Owner: [Contact Info]
+- Project Manager: [Contact Info]
 
-# Portable version only
-npm run dist:portable
+## Documentation Updates
 
-# Development testing
-npm run electron:dev
+- [ ] API documentation updated
+- [ ] User manual updated
+- [ ] Admin guide updated
+- [ ] Troubleshooting guide updated
+- [ ] Change log updated
+- [ ] Version tags created
 
-# Production preview
-npm run electron:build
-```
+## Sign-off
 
-## Troubleshooting Common Issues
+- [ ] Technical Lead Approval: _________________ Date: _______
+- [ ] QA Approval: _________________ Date: _______
+- [ ] Product Owner Approval: _________________ Date: _______
+- [ ] DevOps Approval: _________________ Date: _______
 
-### Build Failures
-1. Clear node_modules: `rm -rf node_modules && npm install`
-2. Clear build cache: `rm -rf dist dist-electron`
-3. Update dependencies: `npm update`
+---
 
-### Runtime Issues
-1. Check console for errors
-2. Verify database permissions
-3. Test with clean user profile
-4. Check Windows compatibility mode
-
-### Distribution Issues
-1. Test on clean Windows installation
-2. Verify all dependencies included
-3. Check file associations
-4. Test with different user privileges
+**Deployment Date:** _________________
+**Deployed By:** _________________
+**Version:** _________________
+**Git Commit:** _________________

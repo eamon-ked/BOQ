@@ -519,91 +519,140 @@ export const useAppStore = create((set, get) => ({
       }
     }),
 
-  addMasterItem: (item) =>
-    set((state) => {
-      try {
-        toast.success(`Added "${item.name}" to database`, {
-          duration: 3000,
-          icon: '➕',
-        });
+  addMasterItem: async (item) => {
+    try {
+      // Make API call to add to server
+      const response = await fetch('http://localhost:3001/api/items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(item),
+      });
 
-        return {
-          data: {
-            ...state.data,
-            masterDatabase: [...state.data.masterDatabase, item],
-          },
-        };
-      } catch (error) {
-        toast.error(`Failed to add item: ${error.message}`, {
-          duration: 5000,
-          icon: '❌',
-        });
-        return state;
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to add item to server');
       }
-    }),
 
-  updateMasterItem: (itemId, updates) =>
-    set((state) => {
-      try {
-        const item = state.data.masterDatabase.find(item => item.id === itemId);
-        if (!item) {
-          toast.error('Item not found in database', { duration: 4000 });
-          return state;
-        }
+      // Update local state only after successful server addition
+      set((state) => ({
+        data: {
+          ...state.data,
+          masterDatabase: [...state.data.masterDatabase, item],
+        },
+      }));
 
-        toast.success(`Updated "${updates.name || item.name}" in database`, {
-          duration: 3000,
-          icon: '✏️',
-        });
+      toast.success(`Added "${item.name}" to database`, {
+        duration: 3000,
+        icon: '➕',
+      });
+    } catch (error) {
+      console.error('Failed to add item:', error);
+      toast.error(`Failed to add item: ${error.message}`, {
+        duration: 5000,
+        icon: '❌',
+      });
+      throw error; // Re-throw so the UI can handle it
+    }
+  },
 
-        return {
-          data: {
-            ...state.data,
-            masterDatabase: state.data.masterDatabase.map((item) =>
-              item.id === itemId ? { ...item, ...updates } : item
-            ),
-          },
-        };
-      } catch (error) {
-        toast.error(`Failed to update item: ${error.message}`, {
-          duration: 5000,
-          icon: '❌',
-        });
-        return state;
+  updateMasterItem: async (itemId, updates) => {
+    const state = get();
+    const item = state.data.masterDatabase.find(item => item.id === itemId);
+    if (!item) {
+      toast.error('Item not found in database', { duration: 4000 });
+      return;
+    }
+
+    try {
+      // Make API call to update on server
+      const response = await fetch(`http://localhost:3001/api/items/${encodeURIComponent(itemId)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to update item on server');
       }
-    }),
 
-  deleteMasterItem: (itemId) =>
-    set((state) => {
-      try {
-        const item = state.data.masterDatabase.find(item => item.id === itemId);
-        if (!item) {
-          toast.error('Item not found in database', { duration: 4000 });
-          return state;
-        }
+      // Update local state only after successful server update
+      set((state) => ({
+        data: {
+          ...state.data,
+          masterDatabase: state.data.masterDatabase.map((item) =>
+            item.id === itemId ? { ...item, ...updates } : item
+          ),
+        },
+      }));
 
-        const wasInBOQ = state.data.boqItems.some(boqItem => boqItem.id === itemId);
-        
-        toast.success(`Deleted "${item.name}" from database${wasInBOQ ? ' and BOQ' : ''}`, {
-          duration: 4000,
-          icon: '🗑️',
-        });
+      toast.success(`Updated "${updates.name || item.name}" in database`, {
+        duration: 3000,
+        icon: '✏️',
+      });
+    } catch (error) {
+      console.error('Failed to update item:', error);
+      toast.error(`Failed to update item: ${error.message}`, {
+        duration: 5000,
+        icon: '❌',
+      });
+      throw error; // Re-throw so the UI can handle it
+    }
+  },
 
-        return {
-          data: {
-            ...state.data,
-            masterDatabase: state.data.masterDatabase.filter((item) => item.id !== itemId),
-            boqItems: state.data.boqItems.filter((item) => item.id !== itemId),
-          },
-        };
-      } catch (error) {
-        toast.error(`Failed to delete item: ${error.message}`, {
-          duration: 5000,
-          icon: '❌',
-        });
-        return state;
+  deleteMasterItem: async (itemId) => {
+    const state = get();
+    const item = state.data.masterDatabase.find(item => item.id === itemId);
+    if (!item) {
+      toast.error('Item not found in database', { duration: 4000 });
+      return;
+    }
+
+    try {
+      // Make API call to delete from server
+      const response = await fetch(`http://localhost:3001/api/items/${encodeURIComponent(itemId)}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete item from server');
       }
-    }),
+
+      // Update local state only after successful server deletion
+      const wasInBOQ = state.data.boqItems.some(boqItem => boqItem.id === itemId);
+      
+      set((state) => ({
+        data: {
+          ...state.data,
+          masterDatabase: state.data.masterDatabase.filter((item) => item.id !== itemId),
+          boqItems: state.data.boqItems.filter((item) => item.id !== itemId),
+        },
+      }));
+
+      toast.success(`Deleted "${item.name}" from database${wasInBOQ ? ' and BOQ' : ''}`, {
+        duration: 4000,
+        icon: '🗑️',
+      });
+    } catch (error) {
+      console.error('Failed to delete item:', error);
+      toast.error(`Failed to delete item: ${error.message}`, {
+        duration: 5000,
+        icon: '❌',
+      });
+      throw error; // Re-throw so the UI can handle it
+    }
+  },
 
   setFilters: (filters) =>
     set((state) => ({

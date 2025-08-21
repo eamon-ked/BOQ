@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 import { useValidatedForm } from '../hooks/useValidatedForm';
 import { createItemFormSchema, updateItemFormSchema } from '../validation/schemas';
+import ConfirmDialog from './ConfirmDialog';
 
 // Field Error Display Component
 const FieldError = memo(({ error, warning, touched, fieldName }) => {
@@ -123,6 +124,11 @@ const ItemManager = memo(() => {
   const [editingItem, setEditingItem] = useState(null);
   const [showFloatingButton, setShowFloatingButton] = useState(false);
   
+  // Dialog states
+  const [showClearDialog, setShowClearDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
+  
   // Default form values
   const defaultFormValues = {
     name: '',
@@ -220,6 +226,70 @@ const ItemManager = memo(() => {
   const updateMasterItem = useAppStore((state) => state.updateMasterItem);
   const deleteMasterItem = useAppStore((state) => state.deleteMasterItem);
 
+  // Function to refresh items from server
+  const refreshItems = useCallback(async () => {
+    try {
+      const response = await fetch("http://localhost:3001/api/items");
+      const result = await response.json();
+      if (result.success) {
+        setMasterDatabase(result.data);
+      }
+    } catch (error) {
+      console.error('Failed to refresh items:', error);
+    }
+  }, [setMasterDatabase]);
+
+  // Function to clear the entire database
+  const clearDatabase = useCallback(async () => {
+    try {
+      const response = await fetch("http://localhost:3001/api/database/clear", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Refresh the data from server after clearing
+        await refreshItems();
+        toast.success('Database cleared successfully! All data has been permanently deleted.', {
+          duration: 5000,
+          icon: '🗑️',
+        });
+      } else {
+        toast.error(`Failed to clear database: ${result.error}`, {
+          duration: 5000,
+          icon: '❌',
+        });
+      }
+    } catch (error) {
+      toast.error(`Failed to clear database: ${error.message}`, {
+        duration: 5000,
+        icon: '❌',
+      });
+    }
+  }, [refreshItems]);
+
+  // Handle delete item confirmation
+  const handleDeleteItem = useCallback((item) => {
+    setItemToDelete(item);
+    setShowDeleteDialog(true);
+  }, []);
+
+  const confirmDeleteItem = useCallback(async () => {
+    if (!itemToDelete) return;
+    
+    try {
+      await deleteMasterItem(itemToDelete.id);
+      setItemToDelete(null);
+    } catch (error) {
+      // Error is already handled in the store function
+      console.error('Delete item failed:', error);
+    }
+  }, [itemToDelete, deleteMasterItem]);
+
   // Utility function to clean up malformed items
   const cleanupMalformedItems = useCallback(() => {
     const cleanedItems = items.map(item => {
@@ -260,7 +330,7 @@ const ItemManager = memo(() => {
     });
     
     setMasterDatabase(cleanedItems);
-    toast.success('Database cleaned up successfully!', {
+    toast.success('Malformed items cleaned up successfully!', {
       duration: 3000,
       icon: '🧹',
     });
@@ -288,10 +358,7 @@ const ItemManager = memo(() => {
         // Keep existing ID when editing
         itemData.id = editingItem.id;
         await updateMasterItem(editingItem.id, itemData);
-        toast.success(`Updated item "${itemData.name}"`, {
-          duration: 3000,
-          icon: '✏️',
-        });
+        // Success toast is handled in the store function
       } else {
         // Generate new ID for new items
         const generatedId = generateItemId(itemData.name, itemData.category);
@@ -306,10 +373,7 @@ const ItemManager = memo(() => {
         
         itemData.id = finalId;
         await addMasterItem(itemData);
-        toast.success(`Added item "${itemData.name}"`, {
-          duration: 3000,
-          icon: '➕',
-        });
+        // Success toast is handled in the store function
       }
 
       resetFormState();
@@ -479,7 +543,7 @@ const ItemManager = memo(() => {
           icon: '📥',
         });
         // Refresh the master database from server
-        // This would typically trigger a refetch of data
+        await refreshItems();
       } else {
         setImportError(result.error || "Import failed. Please check your data.");
       }
@@ -508,13 +572,22 @@ const ItemManager = memo(() => {
               >
                 Import Items
               </button>
-              <button
-                onClick={cleanupMalformedItems}
-                className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-white px-4 py-2 rounded-lg hover:from-yellow-500 hover:to-yellow-600 transition-all duration-200"
-                title="Clean up any malformed items in the database"
-              >
-                🧹 Cleanup DB
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={cleanupMalformedItems}
+                  className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-white px-3 py-2 rounded-lg hover:from-yellow-500 hover:to-yellow-600 transition-all duration-200"
+                  title="Clean up any malformed items in the database"
+                >
+                  🧹 Fix Items
+                </button>
+                <button
+                  onClick={() => setShowClearDialog(true)}
+                  className="bg-gradient-to-r from-red-500 to-red-600 text-white px-3 py-2 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200"
+                  title="⚠️ DANGER: Permanently delete ALL database content"
+                >
+                  🗑️ Clear All
+                </button>
+              </div>
               <button 
                 onClick={() => closeModal('itemEditor')} 
                 className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-all duration-200"
@@ -593,7 +666,7 @@ const ItemManager = memo(() => {
                             <Edit3 size={16} />
                           </button>
                           <button
-                            onClick={() => deleteMasterItem(item.id)}
+                            onClick={() => handleDeleteItem(item)}
                             className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-all duration-200 transform hover:scale-110"
                             title="Delete item"
                           >
@@ -971,6 +1044,45 @@ const ItemManager = memo(() => {
       </div>
     </div>
   )}
+
+      {/* Clear Database Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showClearDialog}
+        onClose={() => setShowClearDialog(false)}
+        onConfirm={clearDatabase}
+        title="🚨 FINAL WARNING 🚨"
+        message={`⚠️ WARNING: This will permanently delete ALL data from the database including:
+
+• All items
+• All categories  
+• All BOQ projects
+• All project templates
+• All dependencies
+
+This action CANNOT be undone!
+
+You are about to PERMANENTLY DELETE ALL DATABASE CONTENT.`}
+        confirmText="Clear Database"
+        cancelText="Cancel"
+        type="danger"
+        requiresTextConfirmation={true}
+        confirmationText="DELETE"
+      />
+
+      {/* Delete Item Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteDialog}
+        onClose={() => {
+          setShowDeleteDialog(false);
+          setItemToDelete(null);
+        }}
+        onConfirm={confirmDeleteItem}
+        title="Delete Item"
+        message={itemToDelete ? `Are you sure you want to delete "${itemToDelete.name}"?\n\nThis action cannot be undone.` : ''}
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="warning"
+      />
     </>
   );
 

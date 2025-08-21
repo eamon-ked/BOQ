@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+const { defineConfig } = require('vite')
+const react = require('@vitejs/plugin-react')
 
-export default defineConfig({
+module.exports = defineConfig({
   base: './',
   plugins: [react()],
   optimizeDeps: {
@@ -100,7 +100,7 @@ export default defineConfig({
     // Enhanced minification
     minify: 'esbuild',
     // Target modern browsers for better optimization
-    target: 'es2020',
+    target: 'es2022',
     // Enable CSS code splitting
     cssCodeSplit: true,
     // Optimize assets

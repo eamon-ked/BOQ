@@ -10,12 +10,21 @@ class DatabaseService {
       const electron = require('electron');
       const userData = (electron.app || electron.remote.app).getPath('userData');
       dbPath = path.join(userData, 'boq.db');
+      console.log('Using Electron userData path for database:', dbPath);
     } catch (e) {
       // Fallback for dev/server mode
       dbPath = path.join(__dirname, 'boq.db');
+      console.log('Using fallback path for database:', dbPath);
     }
+
+    // Check if database file exists before creating
+    const fs = require('fs');
+    const dbExists = fs.existsSync(dbPath);
+    console.log('Database file exists:', dbExists);
+
     this.db = new Database(dbPath);
-    
+    console.log('Database connection established to:', dbPath);
+
     // Database optimization settings
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
@@ -23,11 +32,11 @@ class DatabaseService {
     this.db.pragma('cache_size = 10000');
     this.db.pragma('temp_store = MEMORY');
     this.db.pragma('mmap_size = 268435456'); // 256MB
-    
+
     // Performance monitoring
     this.queryStats = new Map();
     this.preparedStatements = new Map();
-    
+
     this.initializeTables();
     this.runMigrations();
     this.createIndexes();
@@ -134,26 +143,26 @@ class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_items_part_number ON items(part_number)',
       'CREATE INDEX IF NOT EXISTS idx_items_name_category ON items(name, category)',
       'CREATE INDEX IF NOT EXISTS idx_items_price_category ON items(unit_price, category)',
-      
+
       // Dependencies table indexes (foreign key relationships)
       'CREATE INDEX IF NOT EXISTS idx_dependencies_item_id ON dependencies(item_id)',
       'CREATE INDEX IF NOT EXISTS idx_dependencies_dependency_id ON dependencies(dependency_id)',
       'CREATE INDEX IF NOT EXISTS idx_dependencies_composite ON dependencies(item_id, dependency_id)',
-      
+
       // BOQ items table indexes (foreign key relationships)
       'CREATE INDEX IF NOT EXISTS idx_boq_items_project_id ON boq_items(project_id)',
       'CREATE INDEX IF NOT EXISTS idx_boq_items_item_id ON boq_items(item_id)',
       'CREATE INDEX IF NOT EXISTS idx_boq_items_required_by ON boq_items(required_by)',
       'CREATE INDEX IF NOT EXISTS idx_boq_items_is_dependency ON boq_items(is_dependency)',
       'CREATE INDEX IF NOT EXISTS idx_boq_items_project_item ON boq_items(project_id, item_id)',
-      
+
       // BOQ projects table indexes
       'CREATE INDEX IF NOT EXISTS idx_boq_projects_name ON boq_projects(name)',
       'CREATE INDEX IF NOT EXISTS idx_boq_projects_updated_at ON boq_projects(updated_at)',
-      
+
       // Categories table indexes
       'CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name)',
-      
+
       // Full-text search indexes for text fields
       'CREATE INDEX IF NOT EXISTS idx_items_description ON items(description)',
       'CREATE INDEX IF NOT EXISTS idx_items_search_composite ON items(name, description, manufacturer, part_number)'
@@ -171,18 +180,25 @@ class DatabaseService {
   }
 
   seedInitialData() {
-    // For distribution builds, we want to start with a clean database
-    // Only seed basic categories, no sample items
+    // Check if data already exists
     const categoryCount = this.db.prepare('SELECT COUNT(*) as count FROM categories').get();
+    console.log('Categories count on startup:', categoryCount.count);
+
+    const itemCount = this.db.prepare('SELECT COUNT(*) as count FROM items').get();
+    console.log('Items count on startup:', itemCount.count);
+
     if (categoryCount.count > 0) {
+      console.log('Data already exists, skipping seed');
       return; // Data already seeded
     }
 
-    // Insert only basic categories for a clean start
+    console.log('Seeding initial data...');
+
+    // Insert initial categories
     const insertCategory = this.db.prepare('INSERT INTO categories (name) VALUES (?)');
     const categories = [
-      'CCTV', 'Access Control', 'PAVA', 'Cabling', 'Network', 
-      'Power', 'Storage', 'Accessories', 'General'
+      'CCTV', 'Access Control', 'PAVA', 'Cabling', 'Network',
+      'Power', 'Storage', 'Accessories'
     ];
 
     const insertCategories = this.db.transaction((categories) => {
@@ -193,9 +209,11 @@ class DatabaseService {
 
     insertCategories(categories);
 
-    console.log('Initial categories seeded for clean installation');
-    
-    // No sample items for distribution - users start with empty database
+    // Insert initial items
+    const insertItem = this.db.prepare(`
+      INSERT INTO items (id, name, category, manufacturer, part_number, unit, unit_price, unit_net_price, service_duration, estimated_lead_time, pricing_term, discount, description) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
 
     const items = [
       {
@@ -428,13 +446,13 @@ class DatabaseService {
     const insertItems = this.db.transaction((items) => {
       for (const item of items) {
         insertItem.run(
-          item.id, 
-          item.name, 
-          item.category, 
-          item.manufacturer, 
+          item.id,
+          item.name,
+          item.category,
+          item.manufacturer,
           item.part_number,
-          item.unit, 
-          item.unit_price, 
+          item.unit,
+          item.unit_price,
           item.unit_net_price,
           item.service_duration,
           item.estimated_lead_time,
@@ -487,7 +505,7 @@ class DatabaseService {
     const stmt = this.getPreparedStatement('getCategories', 'SELECT name FROM categories ORDER BY name');
     const result = stmt.all().map(row => row.name);
     const endTime = performance.now();
-    
+
     this.logQuery('getCategories', startTime, endTime, result.length);
     return result;
   }
@@ -498,7 +516,7 @@ class DatabaseService {
       const stmt = this.getPreparedStatement('addCategory', 'INSERT INTO categories (name) VALUES (?)');
       stmt.run(name);
       const endTime = performance.now();
-      
+
       this.logQuery('addCategory', startTime, endTime, 1);
       return { success: true };
     } catch (error) {
@@ -511,11 +529,11 @@ class DatabaseService {
       const startTime = performance.now();
       const updateCategory = this.getPreparedStatement('updateCategory', 'UPDATE categories SET name = ? WHERE name = ?');
       const updateItems = this.getPreparedStatement('updateCategoryItems', 'UPDATE items SET category = ? WHERE category = ?');
-      
+
       updateCategory.run(newName, oldName);
       updateItems.run(newName, oldName);
       const endTime = performance.now();
-      
+
       this.logQuery('updateCategory', startTime, endTime, 2);
     });
 
@@ -530,7 +548,7 @@ class DatabaseService {
   deleteCategory(name) {
     try {
       const startTime = performance.now();
-      
+
       // Check if category is in use
       const checkStmt = this.getPreparedStatement('checkCategoryUsage', 'SELECT COUNT(*) as count FROM items WHERE category = ?');
       const itemCount = checkStmt.get(name);
@@ -541,7 +559,7 @@ class DatabaseService {
       const deleteStmt = this.getPreparedStatement('deleteCategory', 'DELETE FROM categories WHERE name = ?');
       deleteStmt.run(name);
       const endTime = performance.now();
-      
+
       this.logQuery('deleteCategory', startTime, endTime, 1);
       return { success: true };
     } catch (error) {
@@ -560,7 +578,7 @@ class DatabaseService {
       GROUP BY i.id
       ORDER BY i.name
     `);
-    
+
     const rawItems = stmt.all();
     const items = rawItems.map(row => {
       const item = {
@@ -628,7 +646,7 @@ class DatabaseService {
 
     const stmt = this.getPreparedStatement(`searchItems_${searchTerm}_${category}_${priceRange}`, sql);
     const rawItems = stmt.all(...params);
-    
+
     const items = rawItems.map(row => ({
       id: row.id,
       name: row.name,
@@ -665,7 +683,7 @@ class DatabaseService {
       GROUP BY i.id
       ORDER BY i.name
     `);
-    
+
     const rawItems = stmt.all(category);
     const items = rawItems.map(row => ({
       id: row.id,
@@ -699,15 +717,15 @@ class DatabaseService {
         INSERT INTO items (id, name, category, manufacturer, part_number, unit, unit_price, unit_net_price, service_duration, estimated_lead_time, pricing_term, discount, description) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      
+
       insertItem.run(
-        item.id, 
-        item.name, 
-        item.category, 
-        item.manufacturer, 
+        item.id,
+        item.name,
+        item.category,
+        item.manufacturer,
         item.partNumber || '',
-        item.unit, 
-        item.unitPrice, 
+        item.unit,
+        item.unitPrice,
         item.unitNetPrice || item.unitPrice,
         item.serviceDuration || 0,
         item.estimatedLeadTime || 0,
@@ -722,7 +740,7 @@ class DatabaseService {
           INSERT INTO dependencies (item_id, dependency_id, quantity) 
           VALUES (?, ?, ?)
         `);
-        
+
         for (const dep of item.dependencies) {
           insertDep.run(item.id, dep.itemId, dep.quantity);
         }
@@ -745,20 +763,20 @@ class DatabaseService {
         SET name = ?, category = ?, manufacturer = ?, part_number = ?, unit = ?, unit_price = ?, unit_net_price = ?, service_duration = ?, estimated_lead_time = ?, pricing_term = ?, discount = ?, description = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `);
-      
+
       updateItem.run(
-        item.name, 
-        item.category, 
-        item.manufacturer, 
+        item.name,
+        item.category,
+        item.manufacturer,
         item.partNumber || '',
-        item.unit, 
-        item.unitPrice, 
+        item.unit,
+        item.unitPrice,
         item.unitNetPrice || item.unitPrice,
         item.serviceDuration || 0,
         item.estimatedLeadTime || 0,
         item.pricingTerm || 'Each',
         item.discount || 0,
-        item.description, 
+        item.description,
         itemId
       );
 
@@ -772,7 +790,7 @@ class DatabaseService {
           INSERT INTO dependencies (item_id, dependency_id, quantity) 
           VALUES (?, ?, ?)
         `);
-        
+
         for (const dep of item.dependencies) {
           insertDep.run(itemId, dep.itemId, dep.quantity);
         }
@@ -792,11 +810,11 @@ class DatabaseService {
       // Delete dependencies where this item is a dependency
       const deleteDepsAsChild = this.db.prepare('DELETE FROM dependencies WHERE dependency_id = ?');
       deleteDepsAsChild.run(itemId);
-      
+
       // Delete dependencies of this item
       const deleteDepsAsParent = this.db.prepare('DELETE FROM dependencies WHERE item_id = ?');
       deleteDepsAsParent.run(itemId);
-      
+
       // Delete the item
       const deleteItem = this.db.prepare('DELETE FROM items WHERE id = ?');
       deleteItem.run(itemId);
@@ -806,6 +824,29 @@ class DatabaseService {
       transaction();
       return { success: true };
     } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  clearDatabase() {
+    const transaction = this.db.transaction(() => {
+      // Clear all data in the correct order to respect foreign key constraints
+      this.db.prepare('DELETE FROM boq_items').run();
+      this.db.prepare('DELETE FROM boq_projects').run();
+      this.db.prepare('DELETE FROM project_templates').run();
+      this.db.prepare('DELETE FROM dependencies').run();
+      this.db.prepare('DELETE FROM items').run();
+      this.db.prepare('DELETE FROM categories').run();
+
+      console.log('Database cleared successfully');
+    });
+
+    try {
+      transaction();
+      // Don't re-seed initial data after clearing - leave database empty
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to clear database:', error);
       return { success: false, error: error.message };
     }
   }
@@ -826,7 +867,7 @@ class DatabaseService {
     `);
     const result = stmt.all().map(this.mapProjectFromDb.bind(this));
     const endTime = performance.now();
-    
+
     this.logQuery('getBOQProjects', startTime, endTime, result.length);
     return result;
   }
@@ -841,7 +882,7 @@ class DatabaseService {
           notes, priority, created_by
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      
+
       const result = stmt.run(
         projectData.name,
         projectData.description || '',
@@ -894,7 +935,7 @@ class DatabaseService {
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `);
-      
+
       stmt.run(
         projectData.name,
         projectData.description || '',
@@ -946,12 +987,12 @@ class DatabaseService {
         WHERE p.id = ?
         GROUP BY p.id
       `);
-      
+
       const result = stmt.get(projectId);
       const endTime = performance.now();
-      
+
       this.logQuery('getBOQProjectById', startTime, endTime, result ? 1 : 0);
-      
+
       if (!result) {
         return { success: false, error: 'Project not found' };
       }
@@ -966,7 +1007,7 @@ class DatabaseService {
     const transaction = this.db.transaction(() => {
       // Log deletion before deleting
       this.logProjectHistory(projectId, 'deleted', null, null, null, deletedBy);
-      
+
       const stmt = this.db.prepare('DELETE FROM boq_projects WHERE id = ?');
       stmt.run(projectId);
     });
@@ -993,7 +1034,7 @@ class DatabaseService {
       }
 
       const sourceProject = sourceResult.project;
-      
+
       // Create new project with cloned data
       const clonedProject = {
         ...sourceProject,
@@ -1050,23 +1091,23 @@ class DatabaseService {
    */
   validateTemplateData(templateData) {
     const errors = [];
-    
+
     if (!templateData.name || templateData.name.trim().length === 0) {
       errors.push('Template name is required');
     }
-    
+
     if (templateData.name && templateData.name.length > 255) {
       errors.push('Template name must be less than 255 characters');
     }
-    
+
     if (templateData.templateDescription && templateData.templateDescription.length > 2000) {
       errors.push('Template description must be less than 2000 characters');
     }
-    
+
     if (templateData.templateCategory && templateData.templateCategory.length > 100) {
       errors.push('Template category must be less than 100 characters');
     }
-    
+
     return {
       isValid: errors.length === 0,
       errors
@@ -1098,7 +1139,7 @@ class DatabaseService {
           INSERT INTO project_templates (name, description, category, template_data, created_by)
           VALUES (?, ?, ?, ?, ?)
         `);
-        
+
         templateStmt.run(
           templateData.name,
           templateData.templateDescription || templateData.description,
@@ -1128,19 +1169,19 @@ class DatabaseService {
       LEFT JOIN items i ON bi.item_id = i.id
       WHERE p.is_template = TRUE
     `;
-    
+
     const params = [];
     if (category) {
       sql += ' AND p.template_category = ?';
       params.push(category);
     }
-    
+
     sql += ' GROUP BY p.id ORDER BY p.name';
 
     const stmt = this.getPreparedStatement(`getProjectTemplates_${category}`, sql);
     const result = stmt.all(...params).map(this.mapProjectFromDb.bind(this));
     const endTime = performance.now();
-    
+
     this.logQuery('getProjectTemplates', startTime, endTime, result.length);
     return result;
   }
@@ -1153,7 +1194,7 @@ class DatabaseService {
    */
   updateProjectTemplate(templateId, templateData, updatedBy = null) {
     const startTime = performance.now();
-    
+
     try {
       // Validate template data
       const validation = this.validateTemplateData(templateData);
@@ -1165,7 +1206,7 @@ class DatabaseService {
       const existingTemplate = this.db.prepare(`
         SELECT id, name FROM boq_projects WHERE id = ? AND is_template = TRUE
       `).get(templateId);
-      
+
       if (!existingTemplate) {
         throw new Error('Template not found or is not a template');
       }
@@ -1188,7 +1229,7 @@ class DatabaseService {
           SET name = ?, description = ?, category = ?, updated_at = CURRENT_TIMESTAMP
           WHERE template_data LIKE '%"projectId":' || ? || '%'
         `);
-        
+
         templateTableStmt.run(
           templateData.name,
           templateData.templateDescription || templateData.description,
@@ -1216,7 +1257,7 @@ class DatabaseService {
       console.error('Error updating project template:', error);
       const endTime = performance.now();
       this.logQuery('updateProjectTemplate', startTime, endTime, 0);
-      
+
       return {
         success: false,
         error: error.message
@@ -1231,13 +1272,13 @@ class DatabaseService {
    */
   deleteProjectTemplate(templateId, deletedBy = null) {
     const startTime = performance.now();
-    
+
     try {
       // First verify the template exists and is actually a template
       const existingTemplate = this.db.prepare(`
         SELECT id, name FROM boq_projects WHERE id = ? AND is_template = TRUE
       `).get(templateId);
-      
+
       if (!existingTemplate) {
         throw new Error('Template not found or is not a template');
       }
@@ -1277,7 +1318,7 @@ class DatabaseService {
       console.error('Error deleting project template:', error);
       const endTime = performance.now();
       this.logQuery('deleteProjectTemplate', startTime, endTime, 0);
-      
+
       return {
         success: false,
         error: error.message
@@ -1296,10 +1337,10 @@ class DatabaseService {
       ORDER BY changed_at DESC 
       LIMIT ?
     `);
-    
+
     const result = stmt.all(projectId, limit);
     const endTime = performance.now();
-    
+
     this.logQuery('getProjectHistory', startTime, endTime, result.length);
     return result;
   }
@@ -1318,7 +1359,7 @@ class DatabaseService {
       LEFT JOIN items i ON bi.item_id = i.id
       WHERE (p.is_template = FALSE OR p.is_template IS NULL)
     `;
-    
+
     const params = [];
 
     if (filters.search) {
@@ -1372,7 +1413,7 @@ class DatabaseService {
     const stmt = this.getPreparedStatement(`searchProjects_${JSON.stringify(filters)}`, sql);
     const result = stmt.all(...params).map(this.mapProjectFromDb.bind(this));
     const endTime = performance.now();
-    
+
     this.logQuery('searchProjects', startTime, endTime, result.length);
     return result;
   }
@@ -1396,10 +1437,10 @@ class DatabaseService {
       FROM boq_projects
       WHERE is_template = FALSE OR is_template IS NULL
     `);
-    
+
     const result = stmt.get();
     const endTime = performance.now();
-    
+
     this.logQuery('getProjectStatistics', startTime, endTime, 1);
     return result;
   }
@@ -1449,7 +1490,7 @@ class DatabaseService {
         INSERT INTO project_history (project_id, action, field_name, old_value, new_value, changed_by)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
-      
+
       stmt.run(projectId, action, fieldName, oldValue, newValue, changedBy);
     } catch (error) {
       console.warn('Failed to log project history:', error.message);
@@ -1470,7 +1511,7 @@ class DatabaseService {
       WHERE bi.project_id = ?
       ORDER BY bi.is_dependency ASC, bi.id ASC
     `);
-    
+
     const rawItems = stmt.all(projectId);
     const items = rawItems.map(row => ({
       id: row.item_id,
@@ -1556,7 +1597,7 @@ class DatabaseService {
   // Performance monitoring methods
   logQuery(queryName, startTime, endTime, rowCount = 0) {
     const duration = endTime - startTime;
-    
+
     if (!this.queryStats.has(queryName)) {
       this.queryStats.set(queryName, {
         count: 0,
@@ -1567,7 +1608,7 @@ class DatabaseService {
         totalRows: 0
       });
     }
-    
+
     const stats = this.queryStats.get(queryName);
     stats.count++;
     stats.totalTime += duration;
@@ -1575,7 +1616,7 @@ class DatabaseService {
     stats.minTime = Math.min(stats.minTime, duration);
     stats.maxTime = Math.max(stats.maxTime, duration);
     stats.totalRows += rowCount;
-    
+
     // Log slow queries (> 100ms)
     if (duration > 100) {
       console.warn(`Slow query detected: ${queryName} took ${duration}ms`);
@@ -1609,34 +1650,34 @@ class DatabaseService {
   optimizeConnection() {
     // Analyze database for query optimization
     this.db.exec('ANALYZE');
-    
+
     // Update table statistics
     this.db.exec('PRAGMA optimize');
-    
+
     console.log('Database connection optimized');
   }
 
   // Performance testing methods
   runPerformanceTest(testName, testFunction, iterations = 100) {
     const results = [];
-    
+
     for (let i = 0; i < iterations; i++) {
       const startTime = performance.now();
       const result = testFunction();
       const endTime = performance.now();
-      
+
       results.push({
         iteration: i + 1,
         duration: endTime - startTime,
         rowCount: Array.isArray(result) ? result.length : result ? 1 : 0
       });
     }
-    
+
     const totalTime = results.reduce((sum, r) => sum + r.duration, 0);
     const avgTime = totalTime / iterations;
     const minTime = Math.min(...results.map(r => r.duration));
     const maxTime = Math.max(...results.map(r => r.duration));
-    
+
     return {
       testName,
       iterations,

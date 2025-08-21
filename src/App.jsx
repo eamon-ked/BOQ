@@ -3,15 +3,13 @@ import { Toaster } from 'react-hot-toast';
 import { Plus, Download, FolderOpen, Layout, Database, Tag, BarChart3, Zap, HelpCircle } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { useAppStore } from './store';
-import { masterDatabase as devMasterDatabase, categories as devCategories } from './data/masterDatabase';
-
 // Use clean database for production builds
 const isProduction = import.meta.env.PROD;
-const masterDatabase = isProduction ? [] : devMasterDatabase;
-const categories = [
-  'CCTV', 'Access Control', 'PAVA', 'Cabling', 'Network', 
-  'Power', 'Storage', 'Accessories', 'General'
-];
+const databaseModule = isProduction 
+  ? await import('./data/cleanMasterDatabase')
+  : await import('./data/masterDatabase');
+
+const { masterDatabase, categories } = databaseModule;
 import BOQTable from './components/BOQTable';
 import ItemSelector from './components/ItemSelector';
 import LoadingFallback from './components/LoadingFallback';
@@ -93,11 +91,39 @@ function AppContent() {
     const clearError = useAppStore((state) => state.clearError);
     const setError = useAppStore((state) => state.setError);
 
-    // Initialize data on app load
+    // Initialize data on app load from server
     useEffect(() => {
+        const loadDataFromServer = async () => {
+            try {
+                // Load items from server
+                const itemsResponse = await fetch('http://localhost:3001/api/items');
+                const itemsResult = await itemsResponse.json();
+                if (itemsResult.success) {
+                    setMasterDatabase(itemsResult.data);
+                } else {
+                    // Fallback to static data if server fails
+                    setMasterDatabase(masterDatabase);
+                }
+
+                // Load categories from server
+                const categoriesResponse = await fetch('http://localhost:3001/api/categories');
+                const categoriesResult = await categoriesResponse.json();
+                if (categoriesResult.success) {
+                    setCategories(categoriesResult.data.map(cat => cat.name));
+                } else {
+                    // Fallback to static data if server fails
+                    setCategories(categories);
+                }
+            } catch (error) {
+                console.error('Failed to load data from server, using static data:', error);
+                // Fallback to static data if server is not available
+                setMasterDatabase(masterDatabase);
+                setCategories(categories);
+            }
+        };
+
         if (storeDatabase.length === 0) {
-            setMasterDatabase(masterDatabase);
-            setCategories(categories);
+            loadDataFromServer();
         }
     }, [storeDatabase.length, setMasterDatabase, setCategories]);
 

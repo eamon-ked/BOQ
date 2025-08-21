@@ -20,6 +20,7 @@ class DatabaseService {
     // Check if database file exists before creating
     const fs = require('fs');
     const dbExists = fs.existsSync(dbPath);
+    this.isNewDatabase = !dbExists;
     console.log('Database file exists:', dbExists);
 
     this.db = new Database(dbPath);
@@ -40,7 +41,10 @@ class DatabaseService {
     this.initializeTables();
     this.runMigrations();
     this.createIndexes();
-    this.seedInitialData();
+    // Only seed on first run when a new database is created
+    if (this.isNewDatabase) {
+      this.seedInitialData();
+    }
   }
 
   /**
@@ -216,231 +220,7 @@ class DatabaseService {
     `);
 
     const items = [
-      {
-        id: 'cam-dome-2mp',
-        name: 'Dome Camera 2MP',
-        category: 'CCTV',
-        manufacturer: 'Hikvision',
-        part_number: 'DS-2CD2123G0-I',
-        unit: 'pcs',
-        unit_price: 150,
-        unit_net_price: 135,
-        service_duration: 36,
-        estimated_lead_time: 14,
-        pricing_term: 'Each',
-        discount: 10,
-        description: 'Indoor/Outdoor dome camera with night vision'
-      },
-      {
-        id: 'cam-bullet-4mp',
-        name: 'Bullet Camera 4MP',
-        category: 'CCTV',
-        manufacturer: 'Dahua',
-        part_number: 'IPC-HFW4431T-ASE',
-        unit: 'pcs',
-        unit_price: 200,
-        unit_net_price: 180,
-        service_duration: 36,
-        estimated_lead_time: 10,
-        pricing_term: 'Each',
-        discount: 10,
-        description: 'Outdoor bullet camera with IR illumination'
-      },
-      {
-        id: 'nvr-16ch',
-        name: 'NVR 16 Channel',
-        category: 'CCTV',
-        manufacturer: 'Hikvision',
-        part_number: 'DS-7616NI-K2/16P',
-        unit: 'pcs',
-        unit_price: 800,
-        unit_net_price: 720,
-        service_duration: 60,
-        estimated_lead_time: 21,
-        pricing_term: 'Each',
-        discount: 10,
-        description: '16 channel network video recorder'
-      },
-      {
-        id: 'cat6-cable',
-        name: 'CAT6 Cable',
-        category: 'Cabling',
-        manufacturer: 'Belden',
-        part_number: '2413-006-1000',
-        unit: 'meters',
-        unit_price: 2.5,
-        unit_net_price: 2.25,
-        service_duration: 300,
-        estimated_lead_time: 7,
-        pricing_term: 'Per Meter',
-        discount: 10,
-        description: 'Category 6 ethernet cable'
-      },
-      {
-        id: 'rj45-connector',
-        name: 'RJ45 Connector',
-        category: 'Network',
-        manufacturer: 'Panduit',
-        part_number: 'CJ688TGBU',
-        unit: 'pcs',
-        unit_price: 1.5,
-        unit_net_price: 1.35,
-        service_duration: 120,
-        estimated_lead_time: 5,
-        pricing_term: 'Each',
-        discount: 10,
-        description: 'CAT6 RJ45 connector'
-      },
-      {
-        id: 'network-switch-24p',
-        name: 'Network Switch 24 Port',
-        category: 'Network',
-        manufacturer: 'Cisco',
-        part_number: 'SG350-28P-K9',
-        unit: 'pcs',
-        unit_price: 300,
-        unit_net_price: 270,
-        service_duration: 60,
-        estimated_lead_time: 14,
-        pricing_term: 'Each',
-        discount: 10,
-        description: '24 port managed switch'
-      },
-      {
-        id: 'power-adapter-12v',
-        name: 'Power Adapter 12V 2A',
-        category: 'Power',
-        manufacturer: 'Mean Well',
-        part_number: 'GST25A12-P1J',
-        unit: 'pcs',
-        unit_price: 25,
-        unit_net_price: 22.5,
-        service_duration: 36,
-        estimated_lead_time: 7,
-        pricing_term: 'Each',
-        discount: 10,
-        description: '12V 2A power adapter'
-      },
-      {
-        id: 'camera-bracket',
-        name: 'Camera Mounting Bracket',
-        category: 'Accessories',
-        manufacturer: 'Generic',
-        part_number: 'CMB-001',
-        unit: 'pcs',
-        unit_price: 15,
-        unit_net_price: 13.5,
-        service_duration: 60,
-        estimated_lead_time: 3,
-        pricing_term: 'Each',
-        discount: 10,
-        description: 'Universal camera mounting bracket'
-      },
-      {
-        id: 'hdd-2tb',
-        name: 'Hard Drive 2TB',
-        category: 'Storage',
-        manufacturer: 'Western Digital',
-        part_number: 'WD20PURZ',
-        unit: 'pcs',
-        unit_price: 120,
-        unit_net_price: 108,
-        service_duration: 36,
-        estimated_lead_time: 10,
-        pricing_term: 'Each',
-        discount: 10,
-        description: '2TB surveillance hard drive'
-      },
-      {
-        id: 'power-cord',
-        name: 'Power Cord',
-        category: 'Power',
-        manufacturer: 'Generic',
-        part_number: 'PC-STD-001',
-        unit: 'pcs',
-        unit_price: 8,
-        unit_net_price: 7.2,
-        service_duration: 120,
-        estimated_lead_time: 2,
-        pricing_term: 'Each',
-        discount: 10,
-        description: 'Standard power cord'
-      },
-      {
-        id: 'card-reader',
-        name: 'RFID Card Reader',
-        category: 'Access Control',
-        manufacturer: 'HID Global',
-        part_number: 'HID-5355AGK00',
-        unit: 'pcs',
-        unit_price: 180,
-        unit_net_price: 162,
-        service_duration: 60,
-        estimated_lead_time: 14,
-        pricing_term: 'Each',
-        discount: 10,
-        description: 'Proximity card reader'
-      },
-      {
-        id: 'access-controller',
-        name: 'Access Control Panel',
-        category: 'Access Control',
-        manufacturer: 'Honeywell',
-        part_number: 'WIN-PAK-SE',
-        unit: 'pcs',
-        unit_price: 450,
-        unit_net_price: 405,
-        service_duration: 60,
-        estimated_lead_time: 21,
-        pricing_term: 'Each',
-        discount: 10,
-        description: '4-door access control panel'
-      },
-      {
-        id: 'speaker-ceiling',
-        name: 'Ceiling Speaker 6W',
-        category: 'PAVA',
-        manufacturer: 'Bosch',
-        part_number: 'LBC3099/41',
-        unit: 'pcs',
-        unit_price: 85,
-        unit_net_price: 76.5,
-        service_duration: 120,
-        estimated_lead_time: 10,
-        pricing_term: 'Each',
-        discount: 10,
-        description: 'Fire-rated ceiling speaker'
-      },
-      {
-        id: 'pava-amplifier',
-        name: 'PAVA Amplifier 240W',
-        category: 'PAVA',
-        manufacturer: 'Bosch',
-        part_number: 'PLE-2MA240-EU',
-        unit: 'pcs',
-        unit_price: 1200,
-        unit_net_price: 1080,
-        service_duration: 60,
-        estimated_lead_time: 28,
-        pricing_term: 'Each',
-        discount: 10,
-        description: 'Public address amplifier'
-      },
-      {
-        id: 'speaker-cable',
-        name: 'Speaker Cable 2x1.5mm',
-        category: 'Cabling',
-        manufacturer: 'Draka',
-        part_number: 'UC900-HS23',
-        unit: 'meters',
-        unit_price: 3.2,
-        unit_net_price: 2.88,
-        service_duration: 300,
-        estimated_lead_time: 7,
-        pricing_term: 'Per Meter',
-        discount: 10,
-        description: 'Fire-rated speaker cable'
-      }
+      
     ];
 
     const insertItems = this.db.transaction((items) => {
@@ -472,20 +252,7 @@ class DatabaseService {
     `);
 
     const dependencies = [
-      { item_id: 'cam-dome-2mp', dependency_id: 'rj45-connector', quantity: 1 },
-      { item_id: 'cam-dome-2mp', dependency_id: 'camera-bracket', quantity: 1 },
-      { item_id: 'cam-dome-2mp', dependency_id: 'power-adapter-12v', quantity: 1 },
-      { item_id: 'cam-bullet-4mp', dependency_id: 'rj45-connector', quantity: 1 },
-      { item_id: 'cam-bullet-4mp', dependency_id: 'camera-bracket', quantity: 1 },
-      { item_id: 'cam-bullet-4mp', dependency_id: 'power-adapter-12v', quantity: 1 },
-      { item_id: 'nvr-16ch', dependency_id: 'hdd-2tb', quantity: 1 },
-      { item_id: 'nvr-16ch', dependency_id: 'power-cord', quantity: 1 },
-      { item_id: 'network-switch-24p', dependency_id: 'power-cord', quantity: 1 },
-      { item_id: 'card-reader', dependency_id: 'cat6-cable', quantity: 10 },
-      { item_id: 'card-reader', dependency_id: 'power-adapter-12v', quantity: 1 },
-      { item_id: 'access-controller', dependency_id: 'power-adapter-12v', quantity: 1 },
-      { item_id: 'speaker-ceiling', dependency_id: 'speaker-cable', quantity: 20 },
-      { item_id: 'pava-amplifier', dependency_id: 'power-cord', quantity: 1 }
+      
     ];
 
     const insertDependencies = this.db.transaction((dependencies) => {

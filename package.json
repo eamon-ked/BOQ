@@ -1,6 +1,6 @@
 {
   "name": "boq-builder",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "description": "Bill of Quantities Generator",
   "main": "main.js",
   "scripts": {
@@ -14,6 +14,7 @@
     "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
     "electron:dev": "npx electron .",
     "electron:build": "npm run build && npx electron .",
+    "dist:win": "npm run build && npx electron-builder --win --publish never",
     "postinstall": "electron-builder install-app-deps",
     "test": "vitest --config vite.config.test.js",
     "test:run": "vitest run --config vite.config.test.js",

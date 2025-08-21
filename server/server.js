@@ -195,12 +195,13 @@ app.get('/api/boq-projects', (req, res) => {
 
 app.post('/api/boq-projects', (req, res) => {
   try {
-    const { name, description } = req.body;
+    const projectData = req.body;
+    const { name } = projectData;
     if (!name) {
       return res.status(400).json({ success: false, error: 'Project name is required' });
     }
-    
-    const result = db.createBOQProject(name, description);
+
+    const result = db.createBOQProject(projectData);
     if (result.success) {
       res.json({ success: true, projectId: result.projectId });
     } else {
@@ -214,13 +215,14 @@ app.post('/api/boq-projects', (req, res) => {
 app.put('/api/boq-projects/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description } = req.body;
-    
+    const projectData = req.body;
+    const { name } = projectData;
+
     if (!name) {
       return res.status(400).json({ success: false, error: 'Project name is required' });
     }
-    
-    const result = db.updateBOQProject(id, name, description);
+
+    const result = db.updateBOQProject(parseInt(id), projectData);
     if (result.success) {
       res.json({ success: true });
     } else {
